@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "ShoppingList": {
+      "title": "Shopping List",
+      "description": "A list of items to buy",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "name": { "type": "string" },
+        "date": { "type": "string" },
+        "image": { "type": "string" },
+        "description": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "ShoppingItem" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name"]
+    },
+    "ShoppingItem": {
+      "title": "Shopping Item",
+      "description": "An item in a shopping list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" }
+      },
+      "required": ["id", "name", "quantity", "unit"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/lists/{listId}": {
+      "schema": "ShoppingList",
+      "description": "Shopping lists"
+    }
+  }
+}

@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - firstName: string (optional)
+    //   - lastName: string (optional)
+    //   - username: string (optional)
+    //   - updatedAt: timestamp (optional)
+    //   - role: string (optional)
+    //
+    // Collection: lists
+    // Document ID: {listId}
+    // Fields:
+    //   - ownerId: string (required) - UID of the user who owns the list
+    //   - name: string (required)
+    //   - items: list (required) - Array of ShoppingItem objects
+    //   - description: string (optional)
+    //   - date: string (optional)
+    //   - image: string (optional)
+    //   - createdAt: timestamp (optional)
+    //   - updatedAt: timestamp (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         request.auth.token.email == "fabiobarros6@gmail.com");
+    }
+
+    function isValidEmail(email) {
+      return email == null || (email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"));
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+       return request.resource.data[field] is string &&
+         request.resource.data[field].size() >= minLen &&
+         request.resource.data[field].size() <= maxLen;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidItem(item) {
+      return item is map &&
+             item.keys().hasAll(['id', 'name', 'quantity', 'unit']) &&
+             item.id is string &&
+             item.name is string && item.name.size() > 0 &&
+             item.quantity is number &&
+             item.unit in ['un', 'kg', 'g'] &&
+             (!('price' in item) || item.price == null || item.price is number) &&
+             (!('category' in item) || item.category == null || item.category is string);
+    }
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'firstName', 'lastName', 'username', 'updatedAt', 'role']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('photoURL' in data) || data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 1000000)) &&
+             (!('firstName' in data) || data.firstName == null || (data.firstName is string && data.firstName.size() <= 50)) &&
+             (!('lastName' in data) || data.lastName == null || (data.lastName is string && data.lastName.size() <= 50)) &&
+             (!('username' in data) || data.username == null || (data.username is string && data.username.size() <= 30)) &&
+             (!('role' in data) || data.role == null || (data.role == 'admin' ? isAdmin() : data.role == 'user'));
+    }
+
+    function isValidList(data) {
+      return hasOnlyAllowedFields(['ownerId', 'name', 'items', 'description', 'date', 'image', 'createdAt', 'updatedAt']) &&
+             data.ownerId == request.auth.uid &&
+             validStringLength('name', 1, 100) &&
+             data.items is list && data.items.size() <= 500 &&
+             data.items.all(item, isValidItem(item)) &&
+             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 1000)) &&
+             (!('date' in data) || data.date == null || (data.date is string && data.date.size() <= 50)) &&
+             (!('image' in data) || data.image == null || (data.image is string && data.image.size() <= 500));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isOwner(uid) && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /lists/{listId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidList(request.resource.data);
+      allow update: if isDocOwner() && isValidList(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+  }
+}
