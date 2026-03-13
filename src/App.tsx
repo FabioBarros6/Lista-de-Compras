@@ -30,7 +30,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 // --- Types ---
 
-type Category = 'Alimentos' | 'Higiene' | 'Limpeza' | 'Outros';
+type Category = 'Alimentos' | 'Higiene' | 'Limpeza' | 'Outros' | '';
 
 interface Item {
   id: string;
@@ -49,7 +49,7 @@ interface ShoppingList {
   description?: string;
 }
 
-type View = 'LOGIN' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST';
+type View = 'LOGIN' | 'HOME' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST';
 
 // --- Mock Data ---
 
@@ -169,7 +169,15 @@ export default function App() {
       <div className="w-full max-w-md bg-white min-h-screen shadow-2xl relative flex flex-col">
         <AnimatePresence mode="wait">
           {currentView === 'LOGIN' && (
-            <LoginView key="login" onLogin={() => navigateTo('LIST_OVERVIEW')} />
+            <LoginView key="login" onLogin={() => navigateTo('HOME')} />
+          )}
+          {currentView === 'HOME' && (
+            <HomeView 
+              key="home" 
+              lists={lists} 
+              onCreateList={() => navigateTo('CREATE_LIST')} 
+              onViewLists={() => navigateTo('LIST_OVERVIEW')}
+            />
           )}
           {currentView === 'LIST_OVERVIEW' && (
             <ListView 
@@ -210,10 +218,10 @@ export default function App() {
         </AnimatePresence>
 
         {/* Bottom Nav - Only visible on main screens */}
-        {(currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS') && (
+        {(currentView === 'HOME' || currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS') && (
           <nav className="fixed bottom-0 w-full max-w-md bg-white/95 backdrop-blur-md border-t border-slate-100 flex justify-around items-center h-20 px-4 z-50">
-            <NavItem icon={<Home size={24} />} label="Início" active={currentView === 'LIST_OVERVIEW'} onClick={() => navigateTo('LIST_OVERVIEW')} />
-            <NavItem icon={<ListTodo size={24} />} label="Listas" active={currentView === 'LIST_DETAILS'} onClick={() => {}} />
+            <NavItem icon={<Home size={24} />} label="Início" active={currentView === 'HOME'} onClick={() => navigateTo('HOME')} />
+            <NavItem icon={<ListTodo size={24} />} label="Listas" active={currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS'} onClick={() => navigateTo('LIST_OVERVIEW')} />
             <NavItem icon={<Tag size={24} />} label="Ofertas" onClick={() => {}} />
             <NavItem icon={<User size={24} />} label="Perfil" onClick={() => {}} />
           </nav>
@@ -237,7 +245,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 
 // --- Views ---
 
-function LoginView({ onLogin }: { onLogin: () => void }) {
+const LoginView: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
   return (
     <motion.div 
       initial={{ opacity: 0 }} 
@@ -327,13 +335,93 @@ function LoginView({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function ListView({ lists, onSelectList, onCreateList, onEditList, onDeleteList }: { 
+const HomeView: React.FC<{ 
+  lists: ShoppingList[], 
+  onCreateList: () => void, 
+  onViewLists: () => void 
+}> = ({ lists, onCreateList, onViewLists }) => {
+  const recentLists = lists.slice(0, 2);
+  
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }}
+      className="flex flex-col h-full p-6 pb-24"
+    >
+      <header className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-black text-slate-900">Olá, Fábio!</h1>
+          <p className="text-slate-500 text-sm">Pronto para as compras de hoje?</p>
+        </div>
+        <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/20">
+          FB
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 gap-4 mb-8">
+        <button 
+          onClick={onCreateList}
+          className="p-6 bg-blue-500 rounded-3xl text-white flex flex-col gap-4 shadow-xl shadow-blue-500/20 hover:bg-blue-600 transition-all active:scale-[0.98]"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center">
+            <Plus size={28} />
+          </div>
+          <div className="text-left">
+            <h3 className="text-lg font-bold">Criar Nova Lista</h3>
+            <p className="text-white/70 text-sm">Organize suas compras de forma rápida</p>
+          </div>
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-slate-900">Listas Recentes</h3>
+        <button onClick={onViewLists} className="text-blue-500 text-sm font-bold hover:underline">Ver todas</button>
+      </div>
+
+      <div className="space-y-4">
+        {recentLists.map(list => (
+          <div 
+            key={list.id}
+            className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm"
+          >
+            <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100">
+              <img src={list.image} alt={list.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold text-slate-900">{list.name}</h4>
+              <p className="text-xs text-slate-400">{list.date} • {list.items.length} itens</p>
+            </div>
+            <button onClick={() => onViewLists()} className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-colors">
+              <ArrowLeft className="rotate-180" size={20} />
+            </button>
+          </div>
+        ))}
+        {lists.length === 0 && (
+          <div className="text-center py-8 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+            <p className="text-slate-400 text-sm">Nenhuma lista criada ainda.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-8 p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white relative overflow-hidden">
+        <div className="relative z-10">
+          <h3 className="text-lg font-bold mb-1">Dica do dia</h3>
+          <p className="text-white/80 text-sm">Compare preços entre mercados para economizar até 30% no final do mês!</p>
+        </div>
+        <Tag className="absolute -right-4 -bottom-4 text-white/10 rotate-12" size={120} />
+      </div>
+    </motion.div>
+  );
+}
+
+const ListView: React.FC<{ 
   lists: ShoppingList[], 
   onSelectList: (id: string) => void, 
   onCreateList: () => void,
   onEditList: (id: string) => void,
   onDeleteList: (id: string) => void
-}) {
+}> = ({ lists, onSelectList, onCreateList, onEditList, onDeleteList }) => {
   return (
     <motion.div 
       initial={{ opacity: 0, x: -20 }} 
@@ -402,13 +490,13 @@ function ListView({ lists, onSelectList, onCreateList, onEditList, onDeleteList 
   );
 }
 
-function DetailsView({ list, onBack, onAddItem, onEditItem, onDeleteItem }: { 
+const DetailsView: React.FC<{ 
   list: ShoppingList, 
   onBack: () => void, 
   onAddItem: () => void,
   onEditItem: (id: string) => void,
   onDeleteItem: (id: string) => void
-}) {
+}> = ({ list, onBack, onAddItem, onEditItem, onDeleteItem }) => {
   const total = list.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
   const totalItems = list.items.reduce((acc, i) => acc + i.quantity, 0);
 
@@ -500,15 +588,15 @@ function DetailsView({ list, onBack, onAddItem, onEditItem, onDeleteItem }: {
   );
 }
 
-function AddItemView({ onBack, onSave, initialData }: { 
+const AddItemView: React.FC<{ 
   onBack: () => void, 
   onSave: (item: Partial<Item>) => void,
   initialData?: Item
-}) {
+}> = ({ onBack, onSave, initialData }) => {
   const [name, setName] = useState(initialData?.name || '');
   const [category, setCategory] = useState<Category>(initialData?.category || 'Alimentos');
   const [price, setPrice] = useState(initialData?.price?.toString() || '');
-  const [quantity, setQuantity] = useState(initialData?.quantity || 1);
+  const [quantity, setQuantity] = useState<number>(initialData?.quantity || 1);
 
   const handleSave = () => {
     if (!name || !price) return;
@@ -516,7 +604,7 @@ function AddItemView({ onBack, onSave, initialData }: {
       name,
       category,
       price: parseFloat(price),
-      quantity
+      quantity: quantity || 1
     });
   };
 
@@ -552,6 +640,7 @@ function AddItemView({ onBack, onSave, initialData }: {
             onChange={(e) => setCategory(e.target.value as Category)}
             className="w-full h-14 px-4 rounded-xl border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%2364748b%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_1rem_center] bg-no-repeat"
           >
+            <option value="">Nenhuma</option>
             <option value="Alimentos">Alimentos</option>
             <option value="Higiene">Higiene Pessoal</option>
             <option value="Limpeza">Produtos de Limpeza</option>
@@ -587,7 +676,13 @@ function AddItemView({ onBack, onSave, initialData }: {
             >
               <Minus size={20} />
             </button>
-            <span className="font-bold text-lg min-w-[20px] text-center">{quantity}</span>
+            <input 
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              className="font-bold text-lg w-12 text-center outline-none bg-transparent"
+              min="1"
+            />
             <button 
               onClick={() => setQuantity(quantity + 1)}
               className="w-8 h-8 flex items-center justify-center rounded-full text-blue-500 hover:bg-blue-50 transition-colors"
@@ -614,11 +709,11 @@ function AddItemView({ onBack, onSave, initialData }: {
   );
 }
 
-function CreateListView({ onBack, onSave, initialData }: { 
+const CreateListView: React.FC<{ 
   onBack: () => void, 
   onSave: (list: Partial<ShoppingList>) => void,
   initialData?: ShoppingList
-}) {
+}> = ({ onBack, onSave, initialData }) => {
   const [name, setName] = useState(initialData?.name || '');
   const [description, setDescription] = useState(initialData?.description || '');
 
