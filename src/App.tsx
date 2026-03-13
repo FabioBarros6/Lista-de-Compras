@@ -149,6 +149,37 @@ interface ShoppingList {
 
 type View = 'LOGIN' | 'HOME' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST' | 'PROFILE';
 
+// --- Constants & Helpers ---
+
+const getSmartGroceryImage = (name: string) => {
+  const nameLower = name.toLowerCase();
+  
+  if (nameLower.includes('churrasco') || nameLower.includes('carne')) 
+    return 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=400&h=400'; // BBQ
+  if (nameLower.includes('limpeza')) 
+    return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&q=80&w=400&h=400'; // Cleaning
+  if (nameLower.includes('fruta') || nameLower.includes('feira') || nameLower.includes('vegetal') || nameLower.includes('hortifruti')) 
+    return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?auto=format&fit=crop&q=80&w=400&h=400'; // Fruits
+  if (nameLower.includes('bebida') || nameLower.includes('cerveja') || nameLower.includes('vinho') || nameLower.includes('festa')) 
+    return 'https://images.unsplash.com/photo-1563223552-30d01fda3ead?auto=format&fit=crop&q=80&w=400&h=400'; // Drinks
+  if (nameLower.includes('higiene') || nameLower.includes('banho') || nameLower.includes('perfumaria')) 
+    return 'https://images.unsplash.com/photo-1559594882-7b5514241da8?auto=format&fit=crop&q=80&w=400&h=400'; // Hygiene
+  if (nameLower.includes('padaria') || nameLower.includes('pão') || nameLower.includes('café')) 
+    return 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=400&h=400'; // Bakery
+    
+  // Default grocery images
+  const defaults = [
+    'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=400&h=400', // Aisle
+    'https://images.unsplash.com/photo-1573248639112-b39cc3ad45a2?auto=format&fit=crop&q=80&w=400&h=400', // Veggies
+    'https://images.unsplash.com/photo-1583258292688-d0213dc5a3a8?auto=format&fit=crop&q=80&w=400&h=400', // Cart
+    'https://images.unsplash.com/photo-1506617564039-2f3b650ad701?auto=format&fit=crop&q=80&w=400&h=400', // Market
+    'https://images.unsplash.com/photo-1543083477-4f7fe73d2424?auto=format&fit=crop&q=80&w=400&h=400'  // Bag
+  ];
+  
+  // Use name length to pick a stable default
+  return defaults[name.length % defaults.length];
+};
+
 // --- Mock Data ---
 
 const INITIAL_LISTS: ShoppingList[] = [
@@ -156,7 +187,7 @@ const INITIAL_LISTS: ShoppingList[] = [
     id: '1',
     name: 'Churrasco de Domingo',
     date: 'Oct 24, 2023',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBDQ61w2sEhX6OPWKdCKNZ7LuPbYPVDWjZuXPSqUZt34bXnG1CdEWj9jrF_F311FCr5YxOS71VSPnfvNwdCk9xjCjXvhw32AdMWY7aD-usNpnlPoYgMuTatWzA2xYEP0fWaM0OyDnaB5nlnFDWAWjWBUl74gAuth95Df1bQpxwKZ6BwB9Lwkcpv6y0nie8eNPd7rLnwpN6Z4YUbWvZzo5rxDaY6aQuRipAm7aCeF4IsSMcHEMPug_W2KZUNwn3E2y64Xz--h0ayGwgW',
+    image: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=400&h=400',
     items: [
       { id: 'i1', name: 'Picanha 1kg', category: 'Alimentos', price: 89.90, quantity: 2, unit: 'kg' },
       { id: 'i2', name: 'Carvão 5kg', category: 'Outros', price: 25.00, quantity: 1, unit: 'un' },
@@ -166,7 +197,7 @@ const INITIAL_LISTS: ShoppingList[] = [
     id: '2',
     name: 'Compras do Mês',
     date: 'Oct 20, 2023',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAln8T0xH2XeW7smw9tbi1laj5UVAAhA3lWT1atp9XHD7valGvwZYKHh45PTnqjOHN6utTMfV8ZZqLFbkT-O4rMYTyH4CkOkMEKwvKhUoy0tGfuB9hJbrOk34KSxbDCHaPPOa7PHxovW0KICide6HKq2zknQ0M6P2IHQpLmeCN1zlAZ-fz_TWPKpOiTOSqzdYwe241V80lJdKCB-MVvTBbsC35ItRRwcju1TiaG9p0GLDdthVM79ibtq351Jn25od-edtyl6K_3uhR4',
+    image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=400&h=400',
     items: [
       { id: 'i3', name: 'Arroz Integral 5kg', category: 'Alimentos', price: 25.90, quantity: 1, unit: 'un' },
       { id: 'i4', name: 'Detergente de Coco', category: 'Limpeza', price: 2.50, quantity: 3, unit: 'un' },
@@ -176,7 +207,7 @@ const INITIAL_LISTS: ShoppingList[] = [
     id: '3',
     name: 'Produtos de Limpeza',
     date: 'Oct 18, 2023',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCji3Wm6TfXB5rv_QsGmjIStw8mzdH5cn1mi1MZiX-WidkOAzlQGmu3YPYVarBhzBi2YWlvJ__6ZYr7mr2bMWPZfmU7IgiSNQbOMJlfwYWa5TwcdkRir2lIoK1N5jHirymJtD6xbcj_mP0bMAYkLPJqek7kyOdalBVodq2HEXZo49lGWc4ZFk2pvYVx_kLCC5SQUMu8mQSMv8KQOYkY4en5jwPcgQ_j3ILBZx1E-VQ3X32XIoTN-iHzJfvf0qbZY0vPxEWzDpsp-gRW',
+    image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&q=80&w=400&h=400',
     items: [
       { id: 'i5', name: 'Sabonete Líquido Refil', category: 'Higiene', price: 12.40, quantity: 1, unit: 'un' },
     ]
@@ -269,12 +300,13 @@ export default function App() {
           updatedAt: serverTimestamp()
         });
       } else {
+        const listName = listData.name || '';
         await addDoc(collection(db, 'lists'), {
           ownerId: user.uid,
-          name: listData.name || '',
+          name: listName,
           description: listData.description || '',
           date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          image: listData.image || 'https://picsum.photos/seed/' + Math.random() + '/400/400',
+          image: listData.image || getSmartGroceryImage(listName),
           items: [],
           createdAt: serverTimestamp()
         });
