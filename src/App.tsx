@@ -31,14 +31,24 @@ import { motion, AnimatePresence } from 'motion/react';
 // --- Types ---
 
 type Category = 'Alimentos' | 'Higiene' | 'Limpeza' | 'Outros' | '';
+type Unit = 'un' | 'kg' | 'g';
 
 interface Item {
   id: string;
   name: string;
   category: Category;
-  price: number;
+  price?: number;
   quantity: number;
+  unit: Unit;
 }
+
+const getItemTotal = (item: { price?: number, quantity: number, unit: Unit }) => {
+  const price = item.price || 0;
+  if (item.unit === 'un') {
+    return price * item.quantity;
+  }
+  return price;
+};
 
 interface ShoppingList {
   id: string;
@@ -60,8 +70,8 @@ const INITIAL_LISTS: ShoppingList[] = [
     date: 'Oct 24, 2023',
     image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBDQ61w2sEhX6OPWKdCKNZ7LuPbYPVDWjZuXPSqUZt34bXnG1CdEWj9jrF_F311FCr5YxOS71VSPnfvNwdCk9xjCjXvhw32AdMWY7aD-usNpnlPoYgMuTatWzA2xYEP0fWaM0OyDnaB5nlnFDWAWjWBUl74gAuth95Df1bQpxwKZ6BwB9Lwkcpv6y0nie8eNPd7rLnwpN6Z4YUbWvZzo5rxDaY6aQuRipAm7aCeF4IsSMcHEMPug_W2KZUNwn3E2y64Xz--h0ayGwgW',
     items: [
-      { id: 'i1', name: 'Picanha 1kg', category: 'Alimentos', price: 89.90, quantity: 2 },
-      { id: 'i2', name: 'Carvão 5kg', category: 'Outros', price: 25.00, quantity: 1 },
+      { id: 'i1', name: 'Picanha 1kg', category: 'Alimentos', price: 89.90, quantity: 2, unit: 'kg' },
+      { id: 'i2', name: 'Carvão 5kg', category: 'Outros', price: 25.00, quantity: 1, unit: 'un' },
     ]
   },
   {
@@ -70,8 +80,8 @@ const INITIAL_LISTS: ShoppingList[] = [
     date: 'Oct 20, 2023',
     image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAln8T0xH2XeW7smw9tbi1laj5UVAAhA3lWT1atp9XHD7valGvwZYKHh45PTnqjOHN6utTMfV8ZZqLFbkT-O4rMYTyH4CkOkMEKwvKhUoy0tGfuB9hJbrOk34KSxbDCHaPPOa7PHxovW0KICide6HKq2zknQ0M6P2IHQpLmeCN1zlAZ-fz_TWPKpOiTOSqzdYwe241V80lJdKCB-MVvTBbsC35ItRRwcju1TiaG9p0GLDdthVM79ibtq351Jn25od-edtyl6K_3uhR4',
     items: [
-      { id: 'i3', name: 'Arroz Integral 5kg', category: 'Alimentos', price: 25.90, quantity: 1 },
-      { id: 'i4', name: 'Detergente de Coco', category: 'Limpeza', price: 2.50, quantity: 3 },
+      { id: 'i3', name: 'Arroz Integral 5kg', category: 'Alimentos', price: 25.90, quantity: 1, unit: 'un' },
+      { id: 'i4', name: 'Detergente de Coco', category: 'Limpeza', price: 2.50, quantity: 3, unit: 'un' },
     ]
   },
   {
@@ -80,7 +90,7 @@ const INITIAL_LISTS: ShoppingList[] = [
     date: 'Oct 18, 2023',
     image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCji3Wm6TfXB5rv_QsGmjIStw8mzdH5cn1mi1MZiX-WidkOAzlQGmu3YPYVarBhzBi2YWlvJ__6ZYr7mr2bMWPZfmU7IgiSNQbOMJlfwYWa5TwcdkRir2lIoK1N5jHirymJtD6xbcj_mP0bMAYkLPJqek7kyOdalBVodq2HEXZo49lGWc4ZFk2pvYVx_kLCC5SQUMu8mQSMv8KQOYkY4en5jwPcgQ_j3ILBZx1E-VQ3X32XIoTN-iHzJfvf0qbZY0vPxEWzDpsp-gRW',
     items: [
-      { id: 'i5', name: 'Sabonete Líquido Refil', category: 'Higiene', price: 12.40, quantity: 1 },
+      { id: 'i5', name: 'Sabonete Líquido Refil', category: 'Higiene', price: 12.40, quantity: 1, unit: 'un' },
     ]
   }
 ];
@@ -146,7 +156,8 @@ export default function App() {
           name: itemData.name || '',
           category: itemData.category || 'Outros',
           price: itemData.price || 0,
-          quantity: itemData.quantity || 1
+          quantity: itemData.quantity || 1,
+          unit: itemData.unit || 'un'
         };
         newItems = [...l.items, newItem];
       }
@@ -467,7 +478,7 @@ const ListView: React.FC<{
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mb-4">{list.date} • R$ {list.items.reduce((acc, i) => acc + (i.price * i.quantity), 0).toFixed(2)}</p>
+              <p className="text-xs text-slate-400 mb-4">{list.date} • R$ {list.items.reduce((acc, i) => acc + getItemTotal(i), 0).toFixed(2)}</p>
               <div className="flex items-center gap-3">
                 <button className="px-4 py-2 bg-blue-500 text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition-colors">Abrir</button>
                 <span className="text-[10px] text-slate-400 font-medium uppercase">{list.items.length} itens</span>
@@ -497,8 +508,8 @@ const DetailsView: React.FC<{
   onEditItem: (id: string) => void,
   onDeleteItem: (id: string) => void
 }> = ({ list, onBack, onAddItem, onEditItem, onDeleteItem }) => {
-  const total = list.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-  const totalItems = list.items.reduce((acc, i) => acc + i.quantity, 0);
+  const total = list.items.reduce((acc, i) => acc + getItemTotal(i), 0);
+  const totalItems = list.items.reduce((acc, i) => acc + (i.unit === 'un' ? i.quantity : 1), 0);
 
   return (
     <motion.div 
@@ -549,11 +560,16 @@ const DetailsView: React.FC<{
                   }`}>
                     {item.category}
                   </span>
-                  <span className="text-xs text-slate-400">{item.quantity} un</span>
+                  <span className="text-xs text-slate-400">{item.quantity} {item.unit}</span>
                 </div>
               </div>
               <div className="text-right">
-                <p className="font-bold text-slate-900">R$ {(item.price * item.quantity).toFixed(2)}</p>
+                <p className="font-bold text-slate-900">
+                  {item.price !== undefined ? `R$ ${getItemTotal(item).toFixed(2)}` : 'R$ --'}
+                </p>
+                {item.price !== undefined && item.unit === 'un' && item.quantity > 1 && (
+                  <p className="text-[10px] text-slate-400">R$ {item.price.toFixed(2)} /un</p>
+                )}
               </div>
             </div>
           ))}
@@ -564,7 +580,7 @@ const DetailsView: React.FC<{
             onClick={onAddItem}
             className="flex items-center gap-2 px-6 py-3 border-2 border-blue-500 text-blue-500 font-bold rounded-full hover:bg-blue-50 transition-colors"
           >
-            <Plus size={20} /> Adicionar mais
+            <Plus size={20} /> Adicionar Item
           </button>
         </div>
       </div>
@@ -596,15 +612,17 @@ const AddItemView: React.FC<{
   const [name, setName] = useState(initialData?.name || '');
   const [category, setCategory] = useState<Category>(initialData?.category || 'Alimentos');
   const [price, setPrice] = useState(initialData?.price?.toString() || '');
-  const [quantity, setQuantity] = useState<number>(initialData?.quantity || 1);
+  const [quantity, setQuantity] = useState<string>(initialData?.quantity?.toString() || '1');
+  const [unit, setUnit] = useState<Unit>(initialData?.unit || 'un');
 
   const handleSave = () => {
-    if (!name || !price) return;
+    if (!name) return;
     onSave({
       name,
       category,
-      price: parseFloat(price),
-      quantity: quantity || 1
+      price: price ? parseFloat(price) : undefined,
+      quantity: parseFloat(quantity) || 1,
+      unit
     });
   };
 
@@ -671,20 +689,32 @@ const AddItemView: React.FC<{
           </div>
           <div className="flex items-center gap-4 bg-white px-3 py-2 rounded-full border border-slate-200 shadow-sm">
             <button 
-              onClick={() => setQuantity(Math.max(1, quantity - 1))}
+              onClick={() => setQuantity(prev => (Math.max(0, parseFloat(prev) - 1)).toString())}
               className="w-8 h-8 flex items-center justify-center rounded-full text-blue-500 hover:bg-blue-50 transition-colors"
             >
               <Minus size={20} />
             </button>
-            <input 
-              type="number"
-              value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="font-bold text-lg w-12 text-center outline-none bg-transparent"
-              min="1"
-            />
+            <div className="flex items-center gap-1">
+              <input 
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className="font-bold text-lg w-16 text-center outline-none bg-transparent"
+                min="0"
+                step={unit === 'kg' ? '0.1' : '1'}
+              />
+              <select 
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as Unit)}
+                className="text-xs font-bold text-blue-500 bg-blue-50 px-2 py-1 rounded-md outline-none appearance-none cursor-pointer"
+              >
+                <option value="un">un</option>
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+              </select>
+            </div>
             <button 
-              onClick={() => setQuantity(quantity + 1)}
+              onClick={() => setQuantity(prev => (parseFloat(prev || '0') + 1).toString())}
               className="w-8 h-8 flex items-center justify-center rounded-full text-blue-500 hover:bg-blue-50 transition-colors"
             >
               <Plus size={20} />
@@ -696,7 +726,13 @@ const AddItemView: React.FC<{
       <footer className="p-6 border-t border-slate-100 bg-white">
         <div className="mb-4 flex justify-between items-center px-1">
           <span className="text-sm text-slate-400 font-medium">Total estimado</span>
-          <span className="text-xl font-black text-blue-500">R$ {(parseFloat(price || '0') * quantity).toFixed(2)}</span>
+          <span className="text-xl font-black text-blue-500">
+            R$ {getItemTotal({ 
+              price: price ? parseFloat(price) : 0, 
+              quantity: parseFloat(quantity) || 1, 
+              unit 
+            }).toFixed(2)}
+          </span>
         </div>
         <button 
           onClick={handleSave}
