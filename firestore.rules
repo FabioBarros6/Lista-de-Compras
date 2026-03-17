@@ -28,6 +28,8 @@ service cloud.firestore {
     //   - description: string (optional)
     //   - date: string (optional)
     //   - image: string (optional)
+    //   - status: string (required) - 'active' or 'archived'
+    //   - sharedWith: map (optional) - Map of UID to permission level
     //   - createdAt: timestamp (optional)
     //   - updatedAt: timestamp (optional)
     //
@@ -49,11 +51,22 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == resource.data.ownerId;
     }
 
+    function isSharedViewer() {
+      return isAuthenticated() && resource.data.sharedWith != null && 
+             (resource.data.sharedWith[request.auth.uid] == 'viewer' || 
+              resource.data.sharedWith[request.auth.uid] == 'editor');
+    }
+
+    function isSharedEditor() {
+      return isAuthenticated() && resource.data.sharedWith != null && 
+             resource.data.sharedWith[request.auth.uid] == 'editor';
+    }
+
     function isAdmin() {
       return isAuthenticated() &&
         (request.auth.token.email == "fabiobarros6@gmail.com" ||
-         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+         request.auth.token.email == "fabinhobarros93@gmail.com" ||
+         request.auth.token.email == "fabinhobarros10@gmail.com");
     }
 
     function isValidEmail(email) {
@@ -95,15 +108,18 @@ service cloud.firestore {
     }
 
     function isValidList(data) {
-      return hasOnlyAllowedFields(['id', 'ownerId', 'name', 'items', 'description', 'date', 'image', 'createdAt', 'updatedAt']) &&
-             data.ownerId == request.auth.uid &&
-             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+      return data.name is string && 
              data.items is list &&
-             (!('description' in data) || data.description == null || data.description is string) &&
-             (!('date' in data) || data.date == null || data.date is string) &&
-             (!('image' in data) || data.image == null || data.image is string) &&
-             (!('createdAt' in data) || data.createdAt is timestamp) &&
-             (!('updatedAt' in data) || data.updatedAt is timestamp);
+             data.status in ['active', 'archived'] &&
+             data.ownerId is string;
+    }
+
+    function canCreateList(data) {
+      return isValidList(data) && data.ownerId == request.auth.uid;
+    }
+
+    function canUpdateList(data) {
+      return isDocOwner() || isAdmin() || isSharedEditor();
     }
 
     // ===============================================================
@@ -111,16 +127,18 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{uid} {
-      allow read: if isOwner(uid) || isAdmin();
+      allow get: if isAuthenticated();
+      allow list: if isAuthenticated();
       allow create: if isOwner(uid) && isValidUser(request.resource.data);
       allow update: if isOwner(uid) && isValidUser(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /lists/{listId} {
-      allow read: if isDocOwner() || isAdmin();
-      allow create: if isAuthenticated() && isValidList(request.resource.data);
-      allow update: if (isDocOwner() || isAdmin()) && isValidList(request.resource.data);
+      allow get: if isDocOwner() || isSharedViewer() || isAdmin();
+      allow list: if isAuthenticated(); 
+      allow create: if isAuthenticated() && canCreateList(request.resource.data);
+      allow update: if (isDocOwner() || isSharedEditor() || isAdmin()) && canUpdateList(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
     }
   }

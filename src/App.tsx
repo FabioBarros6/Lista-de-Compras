@@ -18,13 +18,19 @@ import {
   Minus, 
   Trash2,
   Pencil,
-  CheckCircle,
-  LogIn,
+  Share2,
+  Archive,
+  CheckCircle2,
+  UserPlus,
+  Users,
+  ShieldCheck,
+  ShieldAlert,
   Mail,
   Lock,
   Eye,
   Smartphone,
   LogOut,
+  LogIn,
   Camera,
   Settings,
   Bell,
@@ -35,7 +41,8 @@ import {
   TrendingUp,
   ShoppingBag,
   ShoppingCart,
-  DollarSign
+  DollarSign,
+  CheckCircle
 } from 'lucide-react';
 import { 
   BarChart as ReBarChart, 
@@ -78,7 +85,10 @@ import {
   setDoc, 
   serverTimestamp,
   orderBy,
-  getDocFromServer
+  getDoc,
+  getDocs,
+  getDocFromServer,
+  or
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
@@ -158,11 +168,15 @@ const getItemTotal = (item: { price?: number, quantity: number, unit: Unit }) =>
 
 interface ShoppingList {
   id: string;
+  ownerId: string;
+  ownerEmail?: string;
   name: string;
   date: string;
   items: Item[];
   image: string;
   description?: string;
+  status: 'active' | 'archived';
+  sharedWith?: Record<string, 'viewer' | 'editor'>;
   createdAt?: any;
 }
 
@@ -217,6 +231,8 @@ const getSmartGroceryImage = (name: string) => {
 const INITIAL_LISTS: ShoppingList[] = [
   {
     id: '1',
+    ownerId: 'mock-user',
+    status: 'active',
     name: 'Churrasco de Domingo',
     date: 'Oct 24, 2023',
     image: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=400&h=400',
@@ -227,6 +243,8 @@ const INITIAL_LISTS: ShoppingList[] = [
   },
   {
     id: '2',
+    ownerId: 'mock-user',
+    status: 'active',
     name: 'Compras do Mês',
     date: 'Oct 20, 2023',
     image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=400&h=400',
@@ -237,6 +255,8 @@ const INITIAL_LISTS: ShoppingList[] = [
   },
   {
     id: '3',
+    ownerId: 'mock-user',
+    status: 'active',
     name: 'Produtos de Limpeza',
     date: 'Oct 18, 2023',
     image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&q=80&w=400&h=400',
@@ -289,6 +309,18 @@ export default function App() {
 
   // Auth Listener
   useEffect(() => {
+    const testConnection = async () => {
+      try {
+        const { getDocFromServer, doc } = await import('firebase/firestore');
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    };
+    testConnection();
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
@@ -298,13 +330,22 @@ export default function App() {
         const userRef = doc(db, 'users', currentUser.uid);
         setDoc(userRef, {
           uid: currentUser.uid,
-          email: currentUser.email,
+          email: currentUser.email?.toLowerCase(),
           displayName: currentUser.displayName,
           photoURL: currentUser.photoURL,
           updatedAt: serverTimestamp()
-        }, { merge: true });
+        }, { merge: true }).catch(err => {
+          console.error("Error syncing user profile:", err);
+        });
       } else {
         setCurrentView('LOGIN');
+      }
+    }, (error: any) => {
+      console.error("Auth state change error:", error);
+      if (error.code === 'auth/invalid-credential' || error.message?.includes('auth/invalid-credential')) {
+        signOut(auth).then(() => {
+          window.location.reload();
+        });
       }
     });
     return () => unsubscribe();
@@ -330,7 +371,10 @@ export default function App() {
 
     const q = query(
       collection(db, 'lists'),
-      where('ownerId', '==', user.uid)
+      or(
+        where('ownerId', '==', user.uid),
+        where(`sharedWith.${user.uid}`, 'in', ['viewer', 'editor'])
+      )
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -396,11 +440,14 @@ export default function App() {
         await setDoc(newListRef, {
           id: newListRef.id,
           ownerId: user.uid,
+          ownerEmail: user.email || '',
           name: listName,
           description: listData.description || '',
           date: new Date().toLocaleDateString('pt-BR', { month: 'short', day: 'numeric', year: 'numeric' }),
           image: listData.image || getSmartGroceryImage(listName),
           items: [],
+          status: 'active',
+          sharedWith: {},
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -414,6 +461,64 @@ export default function App() {
       throw error;
     }
   }, [user, currentView, selectedListId]);
+
+  const handleArchiveList = async (listId: string) => {
+    const list = lists.find(l => l.id === listId);
+    if (!list) return;
+    
+    const newStatus = list.status === 'archived' ? 'active' : 'archived';
+    try {
+      await updateDoc(doc(db, 'lists', listId), {
+        status: newStatus
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `lists/${listId}`);
+    }
+  };
+
+  const handleShareList = async (listId: string, email: string, permission: 'viewer' | 'editor') => {
+    try {
+      console.log("Sharing list:", listId, "with email:", email, "permission:", permission);
+      console.log("Current user UID:", user?.uid);
+      
+      // 1. Find user by email
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', email.toLowerCase()));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        console.warn("User not found with email:", email);
+        throw new Error('Usuário não encontrado com este e-mail.');
+      }
+      
+      const targetUser = querySnapshot.docs[0];
+      const targetUserId = targetUser.id;
+      console.log("Target user found:", targetUserId);
+      
+      if (targetUserId === user?.uid) {
+        throw new Error('Você não pode compartilhar a lista com você mesmo.');
+      }
+      
+      // 2. Update list sharedWith
+      const listRef = doc(db, 'lists', listId);
+      const listDoc = await getDoc(listRef);
+      if (!listDoc.exists()) throw new Error('Lista não encontrada.');
+      
+      console.log("Current list data:", listDoc.data());
+      
+      await updateDoc(listRef, {
+        [`sharedWith.${targetUserId}`]: permission,
+        updatedAt: serverTimestamp()
+      });
+      console.log("List shared successfully");
+    } catch (error: any) {
+      console.error("Error in handleShareList:", error);
+      if (error.code === 'permission-denied') {
+        handleFirestoreError(error, OperationType.UPDATE, `lists/${listId}`);
+      }
+      throw error;
+    }
+  };
 
   const handleDeleteList = async (id: string) => {
     try {
@@ -549,6 +654,8 @@ export default function App() {
               onEditItem={(itemId) => navigateTo('EDIT_ITEM', selectedListId, itemId)}
               onDeleteItem={handleDeleteItem}
               onProfileClick={() => navigateTo('PROFILE')}
+              onArchiveList={() => handleArchiveList(selectedListId!)}
+              onShareList={(email, permission) => handleShareList(selectedListId!, email, permission)}
             />
           )}
           {(currentView === 'ADD_ITEM' || currentView === 'EDIT_ITEM') && (
@@ -941,6 +1048,14 @@ const ListView: React.FC<{
   onProfileClick: () => void
 }> = ({ user, lists, onSelectList, onCreateList, onEditList, onDeleteList, onProfileClick }) => {
   const avatarName = user?.displayName || user?.email?.split('@')[0] || 'U';
+  const [activeTab, setActiveTab] = useState<'active' | 'archived' | 'shared'>('active');
+
+  const filteredLists = lists.filter(list => {
+    if (activeTab === 'active') return list.ownerId === user?.uid && list.status !== 'archived';
+    if (activeTab === 'archived') return list.ownerId === user?.uid && list.status === 'archived';
+    if (activeTab === 'shared') return list.ownerId !== user?.uid;
+    return true;
+  });
   
   return (
     <motion.div 
@@ -965,14 +1080,30 @@ const ListView: React.FC<{
       </header>
 
       <div className="px-4 pt-4 mb-4">
-        <div className="flex border-b border-slate-100 gap-8">
-          <button className="pb-3 border-b-2 border-blue-500 text-blue-500 font-bold text-sm">Ativas</button>
-          <button className="pb-3 border-b-2 border-transparent text-slate-400 font-medium text-sm">Arquivadas</button>
+        <div className="flex border-b border-slate-100 gap-6 overflow-x-auto scrollbar-hide">
+          <button 
+            onClick={() => setActiveTab('active')}
+            className={`pb-3 border-b-2 transition-all whitespace-nowrap text-sm ${activeTab === 'active' ? 'border-blue-500 text-blue-500 font-bold' : 'border-transparent text-slate-400 font-medium'}`}
+          >
+            Ativas
+          </button>
+          <button 
+            onClick={() => setActiveTab('archived')}
+            className={`pb-3 border-b-2 transition-all whitespace-nowrap text-sm ${activeTab === 'archived' ? 'border-blue-500 text-blue-500 font-bold' : 'border-transparent text-slate-400 font-medium'}`}
+          >
+            Arquivadas
+          </button>
+          <button 
+            onClick={() => setActiveTab('shared')}
+            className={`pb-3 border-b-2 transition-all whitespace-nowrap text-sm ${activeTab === 'shared' ? 'border-blue-500 text-blue-500 font-bold' : 'border-transparent text-slate-400 font-medium'}`}
+          >
+            Compartilhadas
+          </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 space-y-4">
-        {lists.map(list => (
+        {filteredLists.map(list => (
           <div 
             key={list.id}
             className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative"
@@ -980,20 +1111,31 @@ const ListView: React.FC<{
           >
             <div className="flex-1">
               <div className="flex justify-between items-start">
-                <h3 className="font-bold text-slate-900 mb-1">{list.name}</h3>
+                <div className="flex flex-col">
+                  <h3 className="font-bold text-slate-900 mb-0.5">{list.name}</h3>
+                  {list.ownerId !== user?.uid && (
+                    <div className="flex items-center gap-1 text-[10px] text-blue-500 font-bold uppercase mb-1">
+                      <Users size={10} /> Compartilhada {list.ownerEmail ? `por ${list.ownerEmail}` : ''}
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onEditList(list.id); }}
-                    className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onDeleteList(list.id); }}
-                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {(list.ownerId === user?.uid || list.sharedWith?.[user?.uid || ''] === 'editor') && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onEditList(list.id); }}
+                      className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                  {list.ownerId === user?.uid && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onDeleteList(list.id); }}
+                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
               </div>
               <p className="text-xs text-slate-400 mb-4">{list.date} • R$ {list.items.reduce((acc, i) => acc + getItemTotal(i), 0).toFixed(2)}</p>
@@ -1005,6 +1147,11 @@ const ListView: React.FC<{
             <ListThumbnail image={list.image} name={list.name} className="w-24 h-24" />
           </div>
         ))}
+        {filteredLists.length === 0 && (
+          <div className="text-center py-12 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+            <p className="text-slate-400 text-sm">Nenhuma lista encontrada nesta categoria.</p>
+          </div>
+        )}
       </div>
 
       <button 
@@ -1024,11 +1171,40 @@ const DetailsView: React.FC<{
   onAddItem: () => void,
   onEditItem: (id: string) => void,
   onDeleteItem: (id: string) => void,
-  onProfileClick: () => void
-}> = ({ user, list, onBack, onAddItem, onEditItem, onDeleteItem, onProfileClick }) => {
+  onProfileClick: () => void,
+  onArchiveList: () => void,
+  onShareList: (email: string, permission: 'viewer' | 'editor') => Promise<void>
+}> = ({ user, list, onBack, onAddItem, onEditItem, onDeleteItem, onProfileClick, onArchiveList, onShareList }) => {
   const total = list.items.reduce((acc, i) => acc + getItemTotal(i), 0);
   const totalItems = list.items.reduce((acc, i) => acc + (i.unit === 'un' ? i.quantity : 1), 0);
   const avatarName = user?.displayName || user?.email?.split('@')[0] || 'U';
+  
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [sharePermission, setSharePermission] = useState<'viewer' | 'editor'>('viewer');
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState('');
+  const [shareSuccess, setShareSuccess] = useState(false);
+
+  const handleShare = async () => {
+    if (!shareEmail) return;
+    setSharing(true);
+    setShareError('');
+    setShareSuccess(false);
+    try {
+      await onShareList(shareEmail, sharePermission);
+      setShareSuccess(true);
+      setShareEmail('');
+      setTimeout(() => {
+        setShowShareModal(false);
+        setShareSuccess(false);
+      }, 2000);
+    } catch (err: any) {
+      setShareError(err.message || 'Erro ao compartilhar lista.');
+    } finally {
+      setSharing(false);
+    }
+  };
 
   return (
     <motion.div 
@@ -1056,11 +1232,38 @@ const DetailsView: React.FC<{
         <div className="flex items-center gap-4 mb-6 p-4 bg-slate-50 rounded-3xl border border-slate-100">
           <ListThumbnail image={list.image} name={list.name} className="w-20 h-20" />
           <div className="flex-1">
-            <h2 className="text-xl font-black text-slate-900 leading-tight">{list.name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-black text-slate-900 leading-tight">{list.name}</h2>
+              {list.status === 'archived' && (
+                <span className="px-2 py-0.5 bg-slate-200 text-slate-600 text-[8px] font-black rounded-full uppercase">Arquivada</span>
+              )}
+            </div>
             <p className="text-slate-500 text-sm">{list.date}</p>
             {list.description && <p className="text-slate-400 text-xs mt-1 line-clamp-1">{list.description}</p>}
           </div>
         </div>
+
+        {list.ownerId === user?.uid && (
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <button 
+              onClick={() => setShowShareModal(true)}
+              className="flex items-center justify-center gap-2 p-3 bg-blue-50 text-blue-600 rounded-2xl font-bold text-xs hover:bg-blue-100 transition-colors"
+            >
+              <Share2 size={16} /> Compartilhar
+            </button>
+            <button 
+              onClick={onArchiveList}
+              className={`flex items-center justify-center gap-2 p-3 rounded-2xl font-bold text-xs transition-colors ${
+                list.status === 'archived' 
+                  ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' 
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {list.status === 'archived' ? <CheckCircle2 size={16} /> : <Archive size={16} />}
+              {list.status === 'archived' ? 'Concluir / Ativar' : 'Arquivar'}
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Itens Adicionados</h3>
@@ -1137,6 +1340,95 @@ const DetailsView: React.FC<{
           <ShoppingCart size={20} /> Finalizar Lista
         </button>
       </footer>
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl"
+          >
+            <div className="p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-black text-slate-900">Compartilhar Lista</h3>
+                <button onClick={() => setShowShareModal(false)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400">
+                  <Plus size={20} className="rotate-45" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase">E-mail do convidado</label>
+                  <div className="relative">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="email" 
+                      value={shareEmail}
+                      onChange={(e) => setShareEmail(e.target.value)}
+                      placeholder="exemplo@email.com"
+                      className="w-full h-12 pl-12 pr-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase">Nível de Permissão</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setSharePermission('viewer')}
+                      className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${
+                        sharePermission === 'viewer' ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-slate-100 text-slate-400'
+                      }`}
+                    >
+                      <ShieldCheck size={20} />
+                      <span className="text-[10px] font-bold">Visualizador</span>
+                    </button>
+                    <button 
+                      onClick={() => setSharePermission('editor')}
+                      className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${
+                        sharePermission === 'editor' ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-slate-100 text-slate-400'
+                      }`}
+                    >
+                      <ShieldAlert size={20} />
+                      <span className="text-[10px] font-bold">Editor</span>
+                    </button>
+                  </div>
+                </div>
+
+                {shareError && <p className="text-xs text-red-500 font-medium">{shareError}</p>}
+                {shareSuccess && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold flex items-center gap-2"
+                  >
+                    <CheckCircle2 size={16} /> Lista compartilhada com sucesso!
+                  </motion.div>
+                )}
+              </div>
+
+              <button 
+                onClick={handleShare}
+                disabled={sharing || !shareEmail || shareSuccess}
+                className="w-full h-12 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all"
+              >
+                {sharing ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : shareSuccess ? (
+                  <>
+                    <CheckCircle2 size={18} /> Enviado
+                  </>
+                ) : (
+                  <>
+                    <UserPlus size={18} /> Convidar
+                  </>
+                )}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -1509,7 +1801,10 @@ const AnalysisView: React.FC<{ lists: ShoppingList[] }> = ({ lists }) => {
               >
                 <ListThumbnail image={list.image} name={list.name} className="w-10 h-10" />
                 <div className="text-left">
-                  <p className="font-bold text-sm">{list.name}</p>
+                  <div className="flex items-center gap-1">
+                    <p className="font-bold text-sm">{list.name}</p>
+                    {list.status === 'archived' && <Archive size={10} className="text-slate-400" />}
+                  </div>
                   <p className="text-[10px] opacity-70">{list.date}</p>
                 </div>
               </button>

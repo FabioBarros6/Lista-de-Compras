@@ -20,17 +20,27 @@
       "properties": {
         "id": { "type": "string" },
         "ownerId": { "type": "string" },
+        "ownerEmail": { "type": "string", "description": "Email of the list owner" },
+        "sharedWith": {
+          "type": "object",
+          "description": "Map of user UIDs to permission levels (viewer, editor)"
+        },
         "name": { "type": "string" },
         "date": { "type": "string" },
         "image": { "type": "string" },
         "description": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "archived"],
+          "description": "Current status of the list"
+        },
         "items": {
           "type": "array",
           "items": { "$ref": "ShoppingItem" }
         },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["ownerId", "name"]
+      "required": ["ownerId", "name", "status"]
     },
     "ShoppingItem": {
       "title": "Shopping Item",
