@@ -72,6 +72,7 @@ import {
   signOut, 
   signInWithPopup, 
   GoogleAuthProvider,
+  applyActionCode,
   User as FirebaseUser
 } from 'firebase/auth';
 import { 
@@ -194,7 +195,7 @@ interface ListLog {
   timestamp: any;
 }
 
-type View = 'LOGIN' | 'HOME' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST' | 'PROFILE' | 'ANALYSIS';
+type View = 'LOGIN' | 'HOME' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST' | 'PROFILE' | 'ANALYSIS' | 'VERIFY_EMAIL';
 
 // --- Constants & Helpers ---
 
@@ -323,6 +324,16 @@ export default function App() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   // Auth Listener
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const mode = urlParams.get('mode');
+    const oobCode = urlParams.get('oobCode');
+
+    if (mode === 'verifyEmail' && oobCode) {
+      setCurrentView('VERIFY_EMAIL');
+    }
+  }, []);
+
   useEffect(() => {
     const testConnection = async () => {
       try {
@@ -786,6 +797,9 @@ export default function App() {
               onBack={() => navigateTo('LIST_OVERVIEW')}
               onSave={handleSaveList}
             />
+          )}
+          {currentView === 'VERIFY_EMAIL' && (
+            <VerifyEmailView key="verify-email" onBackToLogin={() => setCurrentView('LOGIN')} />
           )}
         </AnimatePresence>
 
@@ -2615,3 +2629,71 @@ function ProfileMenuItem({ icon, label, onClick }: { icon: React.ReactNode, labe
     </button>
   );
 }
+
+const VerifyEmailView: React.FC<{ onBackToLogin: () => void }> = ({ onBackToLogin }) => {
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const oobCode = urlParams.get('oobCode');
+
+    if (oobCode) {
+      applyActionCode(auth, oobCode)
+        .then(() => {
+          setStatus('success');
+          // Clear URL params
+          window.history.replaceState({}, document.title, "/");
+        })
+        .catch((error) => {
+          console.error("Error verifying email:", error);
+          setStatus('error');
+          setErrorMessage(error.message || 'Código de verificação inválido ou expirado.');
+        });
+    } else {
+      setStatus('error');
+      setErrorMessage('Código de verificação não encontrado.');
+    }
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-md w-full bg-white rounded-[2.5rem] p-10 shadow-2xl shadow-blue-500/10 text-center border border-slate-100"
+      >
+        <div className="mb-8 flex justify-center">
+          <div className={`w-24 h-24 rounded-full flex items-center justify-center ${
+            status === 'loading' ? 'bg-blue-50 text-blue-500' : 
+            status === 'success' ? 'bg-green-50 text-green-500' : 
+            'bg-red-50 text-red-500'
+          }`}>
+            {status === 'loading' && <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>}
+            {status === 'success' && <CheckCircle size={48} />}
+            {status === 'error' && <ShieldAlert size={48} />}
+          </div>
+        </div>
+
+        <h2 className="text-2xl font-black text-slate-900 mb-4">
+          {status === 'loading' && 'Verificando seu e-mail...'}
+          {status === 'success' && 'E-mail Verificado!'}
+          {status === 'error' && 'Ops! Algo deu errado'}
+        </h2>
+
+        <p className="text-slate-500 mb-10 leading-relaxed">
+          {status === 'loading' && 'Estamos processando sua solicitação. Por favor, aguarde um momento.'}
+          {status === 'success' && 'Sua conta foi verificada com sucesso. Agora você já pode aproveitar todos os recursos do SmartGrocery.'}
+          {status === 'error' && errorMessage}
+        </p>
+
+        <button 
+          onClick={onBackToLogin}
+          className="w-full h-14 bg-blue-500 text-white font-bold rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-blue-600 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+        >
+          {status === 'success' ? 'Ir para o Login' : 'Voltar para o Login'} <ArrowLeft size={20} className="rotate-180" />
+        </button>
+      </motion.div>
+    </div>
+  );
+};
