@@ -177,6 +177,7 @@ interface ShoppingList {
   description?: string;
   status: 'active' | 'archived';
   sharedWith?: Record<string, 'viewer' | 'editor'>;
+  sharedEmails?: Record<string, string>;
   createdAt?: any;
 }
 
@@ -476,41 +477,46 @@ export default function App() {
     }
   };
 
-  const handleShareList = async (listId: string, email: string, permission: 'viewer' | 'editor') => {
+  const handleShareList = async (listId: string, emailsInput: string, permission: 'viewer' | 'editor') => {
     try {
-      console.log("Sharing list:", listId, "with email:", email, "permission:", permission);
-      console.log("Current user UID:", user?.uid);
+      const emails = emailsInput.split(/[,;]/).map(e => e.trim()).filter(e => e !== '');
+      if (emails.length === 0) throw new Error('Por favor, insira ao menos um e-mail.');
+
+      console.log("Sharing list:", listId, "with emails:", emails, "permission:", permission);
       
-      // 1. Find user by email
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('email', '==', email.toLowerCase()));
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        console.warn("User not found with email:", email);
-        throw new Error('Usuário não encontrado com este e-mail.');
-      }
-      
-      const targetUser = querySnapshot.docs[0];
-      const targetUserId = targetUser.id;
-      console.log("Target user found:", targetUserId);
-      
-      if (targetUserId === user?.uid) {
-        throw new Error('Você não pode compartilhar a lista com você mesmo.');
-      }
-      
-      // 2. Update list sharedWith
       const listRef = doc(db, 'lists', listId);
       const listDoc = await getDoc(listRef);
       if (!listDoc.exists()) throw new Error('Lista não encontrada.');
-      
-      console.log("Current list data:", listDoc.data());
-      
-      await updateDoc(listRef, {
-        [`sharedWith.${targetUserId}`]: permission,
+
+      const updates: any = {
         updatedAt: serverTimestamp()
-      });
-      console.log("List shared successfully");
+      };
+
+      for (const email of emails) {
+        // 1. Find user by email
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('email', '==', email.toLowerCase()));
+        const querySnapshot = await getDocs(q);
+        
+        if (querySnapshot.empty) {
+          console.warn("User not found with email:", email);
+          // We could skip or throw. Let's throw for now to inform the user.
+          throw new Error(`Usuário não encontrado com o e-mail: ${email}`);
+        }
+        
+        const targetUser = querySnapshot.docs[0];
+        const targetUserId = targetUser.id;
+        
+        if (targetUserId === user?.uid) {
+          continue; // Skip self
+        }
+        
+        updates[`sharedWith.${targetUserId}`] = permission;
+        updates[`sharedEmails.${targetUserId}`] = email.toLowerCase();
+      }
+      
+      await updateDoc(listRef, updates);
+      console.log("List shared successfully with multiple users");
     } catch (error: any) {
       console.error("Error in handleShareList:", error);
       if (error.code === 'permission-denied') {
@@ -1085,7 +1091,7 @@ const ListView: React.FC<{
             onClick={() => setActiveTab('active')}
             className={`pb-3 border-b-2 transition-all whitespace-nowrap text-sm ${activeTab === 'active' ? 'border-blue-500 text-blue-500 font-bold' : 'border-transparent text-slate-400 font-medium'}`}
           >
-            Ativas
+            Minhas Listas
           </button>
           <button 
             onClick={() => setActiveTab('archived')}
@@ -1113,10 +1119,16 @@ const ListView: React.FC<{
               <div className="flex justify-between items-start">
                 <div className="flex flex-col">
                   <h3 className="font-bold text-slate-900 mb-0.5">{list.name}</h3>
-                  {list.ownerId !== user?.uid && (
+                  {list.ownerId !== user?.uid ? (
                     <div className="flex items-center gap-1 text-[10px] text-blue-500 font-bold uppercase mb-1">
                       <Users size={10} /> Compartilhada {list.ownerEmail ? `por ${list.ownerEmail}` : ''}
                     </div>
+                  ) : (
+                    list.sharedWith && Object.keys(list.sharedWith).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1 text-[10px] text-emerald-500 font-bold uppercase mb-1">
+                        <Users size={10} /> Compartilhada com: {list.sharedEmails ? Object.values(list.sharedEmails).join(', ') : `${Object.keys(list.sharedWith).length} pessoas`}
+                      </div>
+                    )
                   )}
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1359,17 +1371,18 @@ const DetailsView: React.FC<{
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-500 uppercase">E-mail do convidado</label>
+                  <label className="text-xs font-bold text-slate-500 uppercase">E-mail(s) do(s) convidado(s)</label>
                   <div className="relative">
                     <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
-                      type="email" 
+                      type="text" 
                       value={shareEmail}
                       onChange={(e) => setShareEmail(e.target.value)}
-                      placeholder="exemplo@email.com"
-                      className="w-full h-12 pl-12 pr-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                      placeholder="exemplo@email.com, outro@email.com"
+                      className="w-full h-12 pl-12 pr-4 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
                     />
                   </div>
+                  <p className="text-[10px] text-slate-400">Separe múltiplos e-mails por vírgula ou ponto e vírgula.</p>
                 </div>
 
                 <div className="space-y-2">
