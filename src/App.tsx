@@ -60,7 +60,8 @@ import {
   doc, 
   setDoc, 
   serverTimestamp,
-  orderBy
+  orderBy,
+  getDocFromServer
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
@@ -249,6 +250,17 @@ export default function App() {
 
   // Firestore Listener for Lists
   useEffect(() => {
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error: any) {
+        if (error.message?.includes('the client is offline') || error.code === 'failed-precondition') {
+          console.error("Please check your Firebase configuration. The client appears to be offline or misconfigured.");
+        }
+      }
+    };
+    testConnection();
+
     if (!user) {
       setLists([]);
       return;
@@ -256,17 +268,27 @@ export default function App() {
 
     const q = query(
       collection(db, 'lists'),
-      where('ownerId', '==', user.uid),
-      orderBy('createdAt', 'desc')
+      where('ownerId', '==', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      console.log("onSnapshot received data, docs count:", snapshot.docs.length);
       const listsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as ShoppingList[];
-      setLists(listsData);
+      
+      // Sort client-side to avoid index requirements
+      const sortedLists = [...listsData].sort((a: any, b: any) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB.getTime() - dateA.getTime();
+      });
+      
+      console.log("Sorted lists count:", sortedLists.length);
+      setLists(sortedLists);
     }, (error) => {
+      console.error("onSnapshot error:", error);
       handleFirestoreError(error, OperationType.LIST, 'lists');
     });
 
@@ -289,33 +311,47 @@ export default function App() {
     setCurrentView(view);
   };
 
-  const handleSaveList = async (listData: Partial<ShoppingList>) => {
-    if (!user) return;
+  const handleSaveList = React.useCallback(async (listData: Partial<ShoppingList>) => {
+    console.log("handleSaveList called with:", listData);
+    if (!user) {
+      console.error("No user found in handleSaveList");
+      throw new Error("Usuário não autenticado.");
+    }
 
+    const path = 'lists';
     try {
       if (currentView === 'EDIT_LIST' && selectedListId) {
-        const listRef = doc(db, 'lists', selectedListId);
+        console.log("Updating existing list:", selectedListId);
+        const listRef = doc(db, path, selectedListId);
         await updateDoc(listRef, {
           ...listData,
           updatedAt: serverTimestamp()
         });
       } else {
+        console.log("Creating new list");
         const listName = listData.name || '';
-        await addDoc(collection(db, 'lists'), {
+        const newListRef = doc(collection(db, path));
+        await setDoc(newListRef, {
+          id: newListRef.id,
           ownerId: user.uid,
           name: listName,
           description: listData.description || '',
           date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           image: listData.image || getSmartGroceryImage(listName),
           items: [],
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         });
+        console.log("New list created with ID:", newListRef.id);
       }
       setCurrentView('LIST_OVERVIEW');
-    } catch (error) {
-      console.error("Error saving list:", error);
+      return true;
+    } catch (error: any) {
+      console.error("Error in handleSaveList:", error);
+      handleFirestoreError(error, OperationType.WRITE, path);
+      throw error;
     }
-  };
+  }, [user, currentView, selectedListId]);
 
   const handleDeleteList = async (id: string) => {
     try {
@@ -326,9 +362,10 @@ export default function App() {
     }
   };
 
-  const handleSaveItem = async (itemData: Partial<Item>) => {
-    if (!selectedListId || !selectedList) return;
+  const handleSaveItem = React.useCallback(async (itemData: Partial<Item>) => {
+    if (!selectedListId || !selectedList) return false;
     
+    const path = `lists/${selectedListId}`;
     try {
       const listRef = doc(db, 'lists', selectedListId);
       let newItems;
@@ -359,10 +396,12 @@ export default function App() {
         updatedAt: serverTimestamp()
       });
       setCurrentView('LIST_DETAILS');
+      return true;
     } catch (error) {
-      console.error("Error saving item:", error);
+      handleFirestoreError(error, OperationType.UPDATE, path);
+      return false;
     }
-  };
+  }, [selectedListId, selectedList, currentView, selectedItemId]);
 
   const handleDeleteItem = async (itemId: string) => {
     if (!selectedListId || !selectedList) return;
@@ -399,8 +438,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex justify-center">
-      <div className="w-full max-w-md bg-white min-h-screen shadow-2xl relative flex flex-col">
+    <div className="min-h-[100dvh] bg-slate-50 font-sans text-slate-900 flex justify-center">
+      <div className="w-full max-w-md bg-white min-h-[100dvh] shadow-2xl relative flex flex-col">
         <AnimatePresence mode="wait">
           {currentView === 'LOGIN' && (
             <LoginView key="login" onLogin={() => navigateTo('HOME')} />
@@ -467,7 +506,7 @@ export default function App() {
 
         {/* Bottom Nav - Only visible on main screens */}
         {(currentView === 'HOME' || currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS' || currentView === 'PROFILE') && (
-          <nav className="fixed bottom-0 w-full max-w-md bg-white/95 backdrop-blur-md border-t border-slate-100 flex justify-around items-center h-20 px-4 z-50">
+          <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/95 backdrop-blur-md border-t border-slate-100 flex justify-around items-center h-20 px-4 z-50">
             <NavItem icon={<Home size={24} />} label="Início" active={currentView === 'HOME'} onClick={() => navigateTo('HOME')} />
             <NavItem icon={<ListTodo size={24} />} label="Listas" active={currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS'} onClick={() => navigateTo('LIST_OVERVIEW')} />
             <NavItem icon={<Tag size={24} />} label="Ofertas" onClick={() => {}} />
@@ -523,8 +562,16 @@ const LoginView: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         return 'Erro de conexão. Verifique sua internet.';
       case 'auth/invalid-credential':
         return 'E-mail ou senha inválidos.';
+      case 'auth/invalid-api-key':
+        return 'Erro de configuração: Chave de API inválida.';
+      case 'auth/too-many-requests':
+        return 'Muitas tentativas. Tente novamente mais tarde.';
+      case 'auth/internal-error':
+        return 'Erro interno do Firebase. Tente novamente.';
+      case 'auth/admin-restricted-operation':
+        return 'Operação restrita a administradores.';
       default:
-        return 'Ocorreu um erro inesperado. Tente novamente mais tarde.';
+        return `Erro inesperado (${errorCode}). Tente novamente mais tarde.`;
     }
   };
 
@@ -550,6 +597,8 @@ const LoginView: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         onLogin();
       }
     } catch (err: any) {
+      console.error("Auth Error Code:", err.code);
+      console.error("Auth Error Message:", err.message);
       setError(getFriendlyErrorMessage(err.code));
     } finally {
       setLoading(false);
@@ -899,7 +948,7 @@ const ListView: React.FC<{
 
       <button 
         onClick={onCreateList}
-        className="fixed bottom-24 right-6 w-14 h-14 bg-blue-500 text-white rounded-full shadow-xl flex items-center justify-center hover:bg-blue-600 transition-all active:scale-90 z-50"
+        className="fixed bottom-24 left-[calc(50%+6rem)] md:left-[calc(50%+10rem)] -translate-x-full w-14 h-14 bg-blue-500 text-white rounded-full shadow-xl flex items-center justify-center hover:bg-blue-600 transition-all active:scale-90 z-50"
       >
         <Plus size={32} />
       </button>
@@ -1003,7 +1052,7 @@ const DetailsView: React.FC<{
         </div>
       </div>
 
-      <footer className="fixed bottom-0 w-full max-w-md bg-white border-t border-slate-100 p-6 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-50">
+      <footer className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-slate-100 p-6 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-50">
         <div className="flex justify-between items-center mb-6">
           <div className="flex flex-col">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Total de Itens</span>
@@ -1024,7 +1073,7 @@ const DetailsView: React.FC<{
 
 const AddItemView: React.FC<{ 
   onBack: () => void, 
-  onSave: (item: Partial<Item>) => void,
+  onSave: (item: Partial<Item>) => Promise<boolean>,
   initialData?: Item
 }> = ({ onBack, onSave, initialData }) => {
   const [name, setName] = useState(initialData?.name || '');
@@ -1032,19 +1081,32 @@ const AddItemView: React.FC<{
   const [price, setPrice] = useState(initialData?.price?.toString() || '');
   const [quantity, setQuantity] = useState<string>(initialData?.quantity?.toString() || '1');
   const [unit, setUnit] = useState<Unit>(initialData?.unit || 'un');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSave = () => {
-    if (!name) return;
+  const handleSave = async () => {
+    if (!name) {
+      setError('Por favor, informe o nome do item.');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
     
     const parsedPrice = price ? parseFloat(price.replace(',', '.')) : undefined;
     
-    onSave({
+    const success = await onSave({
       name,
       category,
       price: isNaN(parsedPrice as number) ? undefined : parsedPrice,
       quantity: parseFloat(quantity) || 1,
       unit
     });
+    
+    if (!success) {
+      setError('Erro ao salvar item. Tente novamente.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -1060,7 +1122,12 @@ const AddItemView: React.FC<{
         <div className="w-10"></div>
       </header>
 
-      <div className="flex-1 p-6 space-y-6 overflow-y-auto">
+      <div className="flex-1 p-6 space-y-6 overflow-y-auto text-slate-900">
+        {error && (
+          <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-sm font-medium">
+            {error}
+          </div>
+        )}
         <div className="space-y-2">
           <label className="text-sm font-semibold text-slate-700">Nome do Item</label>
           <input 
@@ -1149,7 +1216,7 @@ const AddItemView: React.FC<{
           <span className="text-sm text-slate-400 font-medium">Total estimado</span>
           <span className="text-xl font-black text-blue-500">
             R$ {getItemTotal({ 
-              price: price ? parseFloat(price) : 0, 
+              price: price ? parseFloat(price.replace(',', '.')) : 0, 
               quantity: parseFloat(quantity) || 1, 
               unit 
             }).toFixed(2)}
@@ -1157,9 +1224,16 @@ const AddItemView: React.FC<{
         </div>
         <button 
           onClick={handleSave}
-          className="w-full h-14 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          disabled={loading}
+          className="w-full h-14 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
         >
-          <Plus size={20} /> Adicionar à Lista
+          {loading ? (
+            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <>
+              <Plus size={20} /> {initialData ? 'Salvar Alterações' : 'Adicionar à Lista'}
+            </>
+          )}
         </button>
       </footer>
     </motion.div>
@@ -1168,18 +1242,42 @@ const AddItemView: React.FC<{
 
 const CreateListView: React.FC<{ 
   onBack: () => void, 
-  onSave: (list: Partial<ShoppingList>) => void,
+  onSave: (list: Partial<ShoppingList>) => Promise<boolean>,
   initialData?: ShoppingList
 }> = ({ onBack, onSave, initialData }) => {
   const [name, setName] = useState(initialData?.name || '');
   const [description, setDescription] = useState(initialData?.description || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSave = () => {
-    if (!name) return;
-    onSave({
-      name,
-      description,
-    });
+  const handleSave = async () => {
+    console.log("CreateListView: handleSave clicked, name:", name);
+    if (!name) {
+      setError('Por favor, dê um nome para sua lista.');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    
+    console.log("CreateListView: calling onSave...");
+    try {
+      await onSave({
+        name,
+        description,
+      });
+      console.log("CreateListView: onSave completed successfully");
+    } catch (err: any) {
+      console.error("CreateListView: Error during onSave:", err);
+      let message = 'Ocorreu um erro ao salvar a lista.';
+      if (err.code === 'permission-denied') {
+        message = 'Permissão negada. Verifique as regras de segurança.';
+      } else if (err.message) {
+        message = err.message;
+      }
+      setError(message);
+      setLoading(false);
+    }
   };
 
   return (
@@ -1203,6 +1301,11 @@ const CreateListView: React.FC<{
         </div>
 
         <div className="space-y-6">
+          {error && (
+            <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-sm font-medium">
+              {error}
+            </div>
+          )}
           <div className="space-y-2">
             <label className="text-sm font-semibold text-slate-700">Nome da Lista</label>
             <input 
@@ -1244,9 +1347,16 @@ const CreateListView: React.FC<{
       <footer className="p-6 border-t border-slate-100 bg-white">
         <button 
           onClick={handleSave}
-          className="w-full h-14 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+          disabled={loading}
+          className="w-full h-14 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
         >
-          <CheckCircle size={20} /> {initialData ? 'Salvar Alterações' : 'Criar Lista'}
+          {loading ? (
+            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <>
+              <CheckCircle size={20} /> {initialData ? 'Salvar Alterações' : 'Criar Lista'}
+            </>
+          )}
         </button>
       </footer>
     </motion.div>

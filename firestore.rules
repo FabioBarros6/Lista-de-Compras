@@ -51,9 +51,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         request.auth.token.email == "fabiobarros6@gmail.com");
+        (request.auth.token.email == "fabiobarros6@gmail.com" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isValidEmail(email) {
@@ -82,7 +82,7 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'firstName', 'lastName', 'username', 'updatedAt', 'role']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'firstName', 'lastName', 'username', 'updatedAt', 'role', 'createdAt']) &&
              data.uid == request.auth.uid &&
              isValidEmail(data.email) &&
              (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() <= 100)) &&
@@ -90,18 +90,20 @@ service cloud.firestore {
              (!('firstName' in data) || data.firstName == null || (data.firstName is string && data.firstName.size() <= 50)) &&
              (!('lastName' in data) || data.lastName == null || (data.lastName is string && data.lastName.size() <= 50)) &&
              (!('username' in data) || data.username == null || (data.username is string && data.username.size() <= 30)) &&
-             (!('role' in data) || data.role == null || (data.role == 'admin' ? isAdmin() : data.role == 'user'));
+             (!('role' in data) || data.role == null || (data.role == 'admin' ? isAdmin() : data.role == 'user')) &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
     }
 
     function isValidList(data) {
-      return hasOnlyAllowedFields(['ownerId', 'name', 'items', 'description', 'date', 'image', 'createdAt', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['id', 'ownerId', 'name', 'items', 'description', 'date', 'image', 'createdAt', 'updatedAt']) &&
              data.ownerId == request.auth.uid &&
-             validStringLength('name', 1, 100) &&
-             data.items is list && data.items.size() <= 500 &&
-             data.items.all(item, isValidItem(item)) &&
-             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 1000)) &&
-             (!('date' in data) || data.date == null || (data.date is string && data.date.size() <= 50)) &&
-             (!('image' in data) || data.image == null || (data.image is string && data.image.size() <= 500));
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.items is list &&
+             (!('description' in data) || data.description == null || data.description is string) &&
+             (!('date' in data) || data.date == null || data.date is string) &&
+             (!('image' in data) || data.image == null || data.image is string) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
     // ===============================================================
@@ -118,7 +120,7 @@ service cloud.firestore {
     match /lists/{listId} {
       allow read: if isDocOwner() || isAdmin();
       allow create: if isAuthenticated() && isValidList(request.resource.data);
-      allow update: if isDocOwner() && isValidList(request.resource.data);
+      allow update: if (isDocOwner() || isAdmin()) && isValidList(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
     }
   }
