@@ -16,7 +16,6 @@ import {
   MoreVertical, 
   ShoppingBasket, 
   Minus, 
-  ShoppingCart, 
   Trash2,
   Pencil,
   CheckCircle,
@@ -31,8 +30,26 @@ import {
   Bell,
   Shield,
   HelpCircle,
-  ChevronRight
+  ChevronRight,
+  BarChart2,
+  TrendingUp,
+  ShoppingBag,
+  ShoppingCart,
+  DollarSign
 } from 'lucide-react';
+import { 
+  BarChart as ReBarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer, 
+  LineChart, 
+  Line,
+  Cell
+} from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   onAuthStateChanged, 
@@ -146,27 +163,40 @@ interface ShoppingList {
   items: Item[];
   image: string;
   description?: string;
+  createdAt?: any;
 }
 
-type View = 'LOGIN' | 'HOME' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST' | 'PROFILE';
+type View = 'LOGIN' | 'HOME' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST' | 'PROFILE' | 'ANALYSIS';
 
 // --- Constants & Helpers ---
 
 const getSmartGroceryImage = (name: string) => {
   const nameLower = name.toLowerCase();
   
-  if (nameLower.includes('churrasco') || nameLower.includes('carne')) 
+  if (nameLower.includes('churrasco') || nameLower.includes('carne') || nameLower.includes('bbq')) 
     return 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=400&h=400'; // BBQ
-  if (nameLower.includes('limpeza')) 
+  if (nameLower.includes('limpeza') || nameLower.includes('faxina') || nameLower.includes('detergente')) 
     return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&q=80&w=400&h=400'; // Cleaning
-  if (nameLower.includes('fruta') || nameLower.includes('feira') || nameLower.includes('vegetal') || nameLower.includes('hortifruti')) 
+  if (nameLower.includes('fruta') || nameLower.includes('feira') || nameLower.includes('vegetal') || nameLower.includes('hortifruti') || nameLower.includes('legume')) 
     return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?auto=format&fit=crop&q=80&w=400&h=400'; // Fruits
-  if (nameLower.includes('bebida') || nameLower.includes('cerveja') || nameLower.includes('vinho') || nameLower.includes('festa')) 
+  if (nameLower.includes('bebida') || nameLower.includes('cerveja') || nameLower.includes('vinho') || nameLower.includes('festa') || nameLower.includes('suco') || nameLower.includes('refrigerante')) 
     return 'https://images.unsplash.com/photo-1563223552-30d01fda3ead?auto=format&fit=crop&q=80&w=400&h=400'; // Drinks
-  if (nameLower.includes('higiene') || nameLower.includes('banho') || nameLower.includes('perfumaria')) 
+  if (nameLower.includes('higiene') || nameLower.includes('banho') || nameLower.includes('perfumaria') || nameLower.includes('shampoo')) 
     return 'https://images.unsplash.com/photo-1559594882-7b5514241da8?auto=format&fit=crop&q=80&w=400&h=400'; // Hygiene
-  if (nameLower.includes('padaria') || nameLower.includes('pão') || nameLower.includes('café')) 
+  if (nameLower.includes('padaria') || nameLower.includes('pão') || nameLower.includes('café') || nameLower.includes('bolo')) 
     return 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=400&h=400'; // Bakery
+  if (nameLower.includes('pet') || nameLower.includes('cachorro') || nameLower.includes('gato') || nameLower.includes('ração'))
+    return 'https://images.unsplash.com/photo-1583337130417-3346a1be7dee?auto=format&fit=crop&q=80&w=400&h=400'; // Pet
+  if (nameLower.includes('eletrônico') || nameLower.includes('tecnologia') || nameLower.includes('casa'))
+    return 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&q=80&w=400&h=400'; // Tech
+  
+  // Generic keywords that return icons instead of images
+  if (nameLower.includes('sacola') || nameLower.includes('compras') || nameLower.includes('geral'))
+    return 'icon:shopping-bag';
+  if (nameLower.includes('carrinho') || nameLower.includes('mercado'))
+    return 'icon:shopping-cart';
+  if (nameLower.includes('dinheiro') || nameLower.includes('cifrão') || nameLower.includes('economia') || nameLower.includes('preço'))
+    return 'icon:dollar-sign';
     
   // Default grocery images
   const defaults = [
@@ -178,7 +208,8 @@ const getSmartGroceryImage = (name: string) => {
   ];
   
   // Use name length to pick a stable default
-  return defaults[name.length % defaults.length];
+  const index = name.length > 0 ? name.length % defaults.length : 0;
+  return defaults[index];
 };
 
 // --- Mock Data ---
@@ -216,6 +247,37 @@ const INITIAL_LISTS: ShoppingList[] = [
 ];
 
 // --- Components ---
+
+const ListThumbnail: React.FC<{ image: string, name: string, className?: string }> = ({ image, name, className = "w-16 h-16" }) => {
+  if (image.startsWith('icon:')) {
+    const iconName = image.split(':')[1];
+    let Icon = ShoppingBag;
+    let bgColor = 'bg-blue-50';
+    let iconColor = 'text-blue-500';
+
+    if (iconName === 'shopping-cart') {
+      Icon = ShoppingCart;
+      bgColor = 'bg-emerald-50';
+      iconColor = 'text-emerald-500';
+    } else if (iconName === 'dollar-sign') {
+      Icon = DollarSign;
+      bgColor = 'bg-amber-50';
+      iconColor = 'text-amber-500';
+    }
+
+    return (
+      <div className={`${className} rounded-xl ${bgColor} flex items-center justify-center border border-slate-100`}>
+        <Icon className={iconColor} size={className.includes('w-24') ? 40 : 28} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${className} rounded-xl overflow-hidden bg-slate-100 border border-slate-100`}>
+      <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" referrerPolicy="no-referrer" />
+    </div>
+  );
+};
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('LOGIN');
@@ -336,7 +398,7 @@ export default function App() {
           ownerId: user.uid,
           name: listName,
           description: listData.description || '',
-          date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          date: new Date().toLocaleDateString('pt-BR', { month: 'short', day: 'numeric', year: 'numeric' }),
           image: listData.image || getSmartGroceryImage(listName),
           items: [],
           createdAt: serverTimestamp(),
@@ -454,6 +516,9 @@ export default function App() {
               onProfileClick={() => navigateTo('PROFILE')}
             />
           )}
+          {currentView === 'ANALYSIS' && (
+            <AnalysisView lists={lists} />
+          )}
           {currentView === 'PROFILE' && (
             <ProfileView 
               key="profile" 
@@ -505,11 +570,11 @@ export default function App() {
         </AnimatePresence>
 
         {/* Bottom Nav - Only visible on main screens */}
-        {(currentView === 'HOME' || currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS' || currentView === 'PROFILE') && (
+        {(currentView === 'HOME' || currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS' || currentView === 'PROFILE' || currentView === 'ANALYSIS') && (
           <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/95 backdrop-blur-md border-t border-slate-100 flex justify-around items-center h-20 px-4 z-50">
             <NavItem icon={<Home size={24} />} label="Início" active={currentView === 'HOME'} onClick={() => navigateTo('HOME')} />
             <NavItem icon={<ListTodo size={24} />} label="Listas" active={currentView === 'LIST_OVERVIEW' || currentView === 'LIST_DETAILS'} onClick={() => navigateTo('LIST_OVERVIEW')} />
-            <NavItem icon={<Tag size={24} />} label="Ofertas" onClick={() => {}} />
+            <NavItem icon={<BarChart2 size={24} />} label="Análises" active={currentView === 'ANALYSIS'} onClick={() => navigateTo('ANALYSIS')} />
             <NavItem icon={<User size={24} />} label="Perfil" active={currentView === 'PROFILE'} onClick={() => navigateTo('PROFILE')} />
           </nav>
         )}
@@ -836,11 +901,9 @@ const HomeView: React.FC<{
         {recentLists.map(list => (
           <div 
             key={list.id}
-            className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm"
+            className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm group"
           >
-            <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100">
-              <img src={list.image} alt={list.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            </div>
+            <ListThumbnail image={list.image} name={list.name} />
             <div className="flex-1">
               <h4 className="font-bold text-slate-900">{list.name}</h4>
               <p className="text-xs text-slate-400">{list.date} • {list.items.length} itens</p>
@@ -939,9 +1002,7 @@ const ListView: React.FC<{
                 <span className="text-[10px] text-slate-400 font-medium uppercase">{list.items.length} itens</span>
               </div>
             </div>
-            <div className="w-24 h-24 rounded-xl overflow-hidden bg-slate-100 border border-slate-100">
-              <img src={list.image} alt={list.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
-            </div>
+            <ListThumbnail image={list.image} name={list.name} className="w-24 h-24" />
           </div>
         ))}
       </div>
@@ -992,6 +1053,15 @@ const DetailsView: React.FC<{
       </header>
 
       <div className="p-4">
+        <div className="flex items-center gap-4 mb-6 p-4 bg-slate-50 rounded-3xl border border-slate-100">
+          <ListThumbnail image={list.image} name={list.name} className="w-20 h-20" />
+          <div className="flex-1">
+            <h2 className="text-xl font-black text-slate-900 leading-tight">{list.name}</h2>
+            <p className="text-slate-500 text-sm">{list.date}</p>
+            {list.description && <p className="text-slate-400 text-xs mt-1 line-clamp-1">{list.description}</p>}
+          </div>
+        </div>
+
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Itens Adicionados</h3>
           <span className="px-2 py-1 bg-blue-50 text-blue-500 text-[10px] font-black rounded-full">{list.items.length} ITENS</span>
@@ -1294,10 +1364,9 @@ const CreateListView: React.FC<{
       </header>
 
       <div className="flex-1 p-6 space-y-8 overflow-y-auto">
-        <div className="flex justify-center">
-          <div className="w-24 h-24 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
-            <Plus size={48} />
-          </div>
+        <div className="flex flex-col items-center gap-4">
+          <ListThumbnail image={getSmartGroceryImage(name)} name={name} className="w-24 h-24" />
+          <p className="text-xs text-slate-400 font-medium">Prévia da imagem da lista</p>
         </div>
 
         <div className="space-y-6">
@@ -1362,6 +1431,225 @@ const CreateListView: React.FC<{
     </motion.div>
   );
 }
+
+const AnalysisView: React.FC<{ lists: ShoppingList[] }> = ({ lists }) => {
+  const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
+  const [selectedItemName, setSelectedItemName] = useState<string>('');
+
+  const selectedLists = useMemo(() => 
+    lists.filter(l => selectedListIds.includes(l.id))
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateA.getTime() - dateB.getTime();
+      }),
+    [lists, selectedListIds]
+  );
+
+  const allItemNames = useMemo(() => {
+    const names = new Set<string>();
+    lists.forEach(l => l.items.forEach(i => names.add(i.name)));
+    return Array.from(names).sort();
+  }, [lists]);
+
+  const totalValueData = useMemo(() => {
+    return selectedLists.map(l => ({
+      name: l.name,
+      total: l.items.reduce((sum, item) => sum + getItemTotal(item), 0),
+      date: l.date
+    }));
+  }, [selectedLists]);
+
+  const priceHistoryData = useMemo(() => {
+    if (!selectedItemName) return [];
+    return selectedLists.map(l => {
+      const item = l.items.find(i => i.name === selectedItemName);
+      return {
+        listName: l.name,
+        date: l.date,
+        price: item ? item.price : null,
+        quantity: item ? item.quantity : 0
+      };
+    }).filter(d => d.price !== null);
+  }, [selectedLists, selectedItemName]);
+
+  const toggleList = (id: string) => {
+    setSelectedListIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }} 
+      animate={{ opacity: 1, y: 0 }} 
+      className="flex flex-col h-full pb-20"
+    >
+      <header className="p-6 bg-white border-b border-slate-100 sticky top-0 z-10">
+        <h1 className="text-2xl font-black text-slate-900">Análises</h1>
+        <p className="text-slate-500 text-sm">Compare suas listas e acompanhe preços</p>
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-6 space-y-8">
+        {/* List Selection */}
+        <section className="space-y-4">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <ListTodo size={16} /> Selecionar Listas para Comparar
+          </h2>
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+            {lists.map(list => (
+              <button
+                key={list.id}
+                onClick={() => toggleList(list.id)}
+                className={`flex-shrink-0 px-4 py-3 rounded-2xl border-2 transition-all flex items-center gap-3 ${
+                  selectedListIds.includes(list.id)
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-100 bg-white text-slate-600'
+                }`}
+              >
+                <ListThumbnail image={list.image} name={list.name} className="w-10 h-10" />
+                <div className="text-left">
+                  <p className="font-bold text-sm">{list.name}</p>
+                  <p className="text-[10px] opacity-70">{list.date}</p>
+                </div>
+              </button>
+            )) }
+          </div>
+        </section>
+
+        {selectedListIds.length > 0 ? (
+          <>
+            {/* Total Value Comparison */}
+            <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-slate-800">Comparativo de Valor Total</h2>
+                <BarChart2 className="text-blue-500" size={20} />
+              </div>
+              <div className="h-[250px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ReBarChart data={totalValueData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#64748b'}} tickFormatter={(value) => `R$${value}`} />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      formatter={(value: number) => [`R$ ${value.toFixed(2)}`, 'Total']}
+                    />
+                    <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                      {totalValueData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#3b82f6' : '#60a5fa'} />
+                      ))}
+                    </Bar>
+                  </ReBarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+
+            {/* Price Variation */}
+            <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold text-slate-800">Variação de Preço por Item</h2>
+                  <TrendingUp className="text-emerald-500" size={20} />
+                </div>
+                <select 
+                  value={selectedItemName}
+                  onChange={(e) => setSelectedItemName(e.target.value)}
+                  className="w-full mt-2 p-3 rounded-xl bg-slate-50 border border-slate-100 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/20"
+                >
+                  <option value="">Selecione um item para analisar...</option>
+                  {allItemNames.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedItemName && priceHistoryData.length > 0 ? (
+                <div className="space-y-4">
+                  {/* Simple Bar Chart for Quick Overview */}
+                  <div className="h-[150px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ReBarChart data={priceHistoryData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="date" hide />
+                        <YAxis hide domain={[0, 'dataMax + 5']} />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          formatter={(value: number) => [`R$ ${value.toFixed(2)}`, 'Preço']}
+                        />
+                        <Bar dataKey="price" radius={[4, 4, 0, 0]}>
+                          {priceHistoryData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={index === priceHistoryData.length - 1 ? '#10b981' : '#cbd5e1'} />
+                          ))}
+                        </Bar>
+                      </ReBarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Detailed Comparison List */}
+                  <div className="space-y-3">
+                    {priceHistoryData.map((data, index) => {
+                      const prevPrice = index > 0 ? priceHistoryData[index - 1].price : null;
+                      const diff = prevPrice !== null ? (data.price || 0) - (prevPrice || 0) : 0;
+                      const diffPercent = prevPrice ? (diff / prevPrice) * 100 : 0;
+                      const maxPrice = Math.max(...priceHistoryData.map(d => d.price || 0));
+                      const barWidth = ((data.price || 0) / maxPrice) * 100;
+
+                      return (
+                        <div key={index} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-bold text-slate-800 text-sm">{data.listName}</p>
+                              <p className="text-[10px] text-slate-500">{data.date}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-black text-slate-900">R$ {data.price?.toFixed(2)}</p>
+                              {prevPrice !== null && (
+                                <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${diff > 0 ? 'text-red-500' : diff < 0 ? 'text-emerald-500' : 'text-slate-400'}`}>
+                                  {diff > 0 ? '↑' : diff < 0 ? '↓' : ''} 
+                                  {diff === 0 ? 'Sem alteração' : `R$ ${Math.abs(diff).toFixed(2)} (${Math.abs(diffPercent).toFixed(1)}%)`}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${barWidth}%` }}
+                              className={`h-full rounded-full ${diff > 0 ? 'bg-red-400' : diff < 0 ? 'bg-emerald-400' : 'bg-blue-400'}`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : selectedItemName ? (
+                <div className="py-10 text-center space-y-2">
+                  <p className="text-slate-400 text-sm">Este item não foi encontrado nas listas selecionadas.</p>
+                </div>
+              ) : (
+                <div className="py-10 text-center space-y-2">
+                  <p className="text-slate-400 text-sm">Selecione um item acima para ver o histórico de preços.</p>
+                </div>
+              )}
+            </section>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-slate-300">
+              <BarChart2 size={40} />
+            </div>
+            <div className="space-y-1">
+              <p className="font-bold text-slate-600">Nenhuma lista selecionada</p>
+              <p className="text-slate-400 text-sm max-w-[200px]">Selecione duas ou mais listas acima para começar a comparar.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+};
 
 const ProfileView: React.FC<{ 
   user: FirebaseUser | null, 
