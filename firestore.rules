@@ -140,6 +140,23 @@ service cloud.firestore {
       allow create: if isAuthenticated() && canCreateList(request.resource.data);
       allow update: if (isDocOwner() || isSharedEditor() || isAdmin()) && canUpdateList(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
+
+      match /logs/{logId} {
+        allow list: if isAuthenticated() && (
+          request.auth.uid == get(/databases/$(database)/documents/lists/$(listId)).data.ownerId ||
+          (get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith != null && 
+           request.auth.uid in get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith &&
+           get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith[request.auth.uid] in ['viewer', 'editor']) ||
+          isAdmin()
+        );
+        allow create: if isAuthenticated() && (
+          request.auth.uid == get(/databases/$(database)/documents/lists/$(listId)).data.ownerId ||
+          (get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith != null && 
+           request.auth.uid in get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith &&
+           get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith[request.auth.uid] == 'editor') ||
+          isAdmin()
+        );
+      }
     }
   }
 }

@@ -42,7 +42,8 @@ import {
   ShoppingBag,
   ShoppingCart,
   DollarSign,
-  CheckCircle
+  CheckCircle,
+  History
 } from 'lucide-react';
 import { 
   BarChart as ReBarChart, 
@@ -84,6 +85,7 @@ import {
   doc, 
   setDoc, 
   serverTimestamp,
+  deleteField,
   orderBy,
   getDoc,
   getDocs,
@@ -178,7 +180,18 @@ interface ShoppingList {
   status: 'active' | 'archived';
   sharedWith?: Record<string, 'viewer' | 'editor'>;
   sharedEmails?: Record<string, string>;
+  sharedNames?: Record<string, string>;
   createdAt?: any;
+}
+
+interface ListLog {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  action: string;
+  details: string;
+  timestamp: any;
 }
 
 type View = 'LOGIN' | 'HOME' | 'LIST_OVERVIEW' | 'LIST_DETAILS' | 'ADD_ITEM' | 'EDIT_ITEM' | 'CREATE_LIST' | 'EDIT_LIST' | 'PROFILE' | 'ANALYSIS';
@@ -305,6 +318,7 @@ export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [lists, setLists] = useState<ShoppingList[]>([]);
+  const [logs, setLogs] = useState<ListLog[]>([]);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
@@ -402,6 +416,48 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // Firestore Listener for Logs
+  useEffect(() => {
+    if (!selectedListId || !user) {
+      setLogs([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'lists', selectedListId, 'logs'),
+      orderBy('timestamp', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const logsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ListLog[];
+      setLogs(logsData);
+    }, (error) => {
+      console.error("Logs onSnapshot error:", error);
+    });
+
+    return () => unsubscribe();
+  }, [selectedListId]);
+
+  const addListLog = async (listId: string, action: string, details: string) => {
+    if (!user) return;
+    try {
+      const logsRef = collection(db, 'lists', listId, 'logs');
+      await addDoc(logsRef, {
+        userId: user.uid,
+        userName: user.displayName || user.email?.split('@')[0] || 'Usuário',
+        userEmail: user.email || '',
+        action,
+        details,
+        timestamp: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("Error adding log:", error);
+    }
+  };
+
   const selectedList = useMemo(() => 
     lists.find(l => l.id === selectedListId), 
     [lists, selectedListId]
@@ -434,6 +490,8 @@ export default function App() {
           ...listData,
           updatedAt: serverTimestamp()
         });
+        setCurrentView('LIST_OVERVIEW');
+        addListLog(selectedListId, 'Alterou a lista', `Nome: ${listData.name || selectedList?.name}`);
       } else {
         console.log("Creating new list");
         const listName = listData.name || '';
@@ -449,19 +507,21 @@ export default function App() {
           items: [],
           status: 'active',
           sharedWith: {},
+          sharedEmails: {},
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
+        setCurrentView('LIST_OVERVIEW');
+        addListLog(newListRef.id, 'Criou a lista', `Nome: ${listName}`);
         console.log("New list created with ID:", newListRef.id);
       }
-      setCurrentView('LIST_OVERVIEW');
       return true;
     } catch (error: any) {
       console.error("Error in handleSaveList:", error);
       handleFirestoreError(error, OperationType.WRITE, path);
       throw error;
     }
-  }, [user, currentView, selectedListId]);
+  }, [user, currentView, selectedListId, selectedList]);
 
   const handleArchiveList = async (listId: string) => {
     const list = lists.find(l => l.id === listId);
@@ -472,6 +532,7 @@ export default function App() {
       await updateDoc(doc(db, 'lists', listId), {
         status: newStatus
       });
+      await addListLog(listId, newStatus === 'archived' ? 'Arquivou a lista' : 'Ativou a lista', '');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `lists/${listId}`);
     }
@@ -506,6 +567,7 @@ export default function App() {
         
         const targetUser = querySnapshot.docs[0];
         const targetUserId = targetUser.id;
+        const targetUserData = targetUser.data();
         
         if (targetUserId === user?.uid) {
           continue; // Skip self
@@ -513,9 +575,15 @@ export default function App() {
         
         updates[`sharedWith.${targetUserId}`] = permission;
         updates[`sharedEmails.${targetUserId}`] = email.toLowerCase();
+        if (targetUserData.displayName) {
+          updates[`sharedNames.${targetUserId}`] = targetUserData.displayName;
+        } else if (targetUserData.username) {
+          updates[`sharedNames.${targetUserId}`] = targetUserData.username;
+        }
       }
       
       await updateDoc(listRef, updates);
+      await addListLog(listId, 'Compartilhou a lista', `Com: ${emails.join(', ')}`);
       console.log("List shared successfully with multiple users");
     } catch (error: any) {
       console.error("Error in handleShareList:", error);
@@ -523,6 +591,38 @@ export default function App() {
         handleFirestoreError(error, OperationType.UPDATE, `lists/${listId}`);
       }
       throw error;
+    }
+  };
+
+  const handleUnshareList = async (listId: string, targetUserId: string) => {
+    try {
+      const listRef = doc(db, 'lists', listId);
+      const updates: any = {
+        updatedAt: serverTimestamp(),
+        [`sharedWith.${targetUserId}`]: deleteField(),
+        [`sharedEmails.${targetUserId}`]: deleteField(),
+        [`sharedNames.${targetUserId}`]: deleteField()
+      };
+      await updateDoc(listRef, updates);
+      await addListLog(listId, 'Removeu acesso', `Usuário ID: ${targetUserId}`);
+    } catch (error) {
+      console.error("Error unsharing list:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `lists/${listId}`);
+    }
+  };
+
+  const handleUpdatePermission = async (listId: string, targetUserId: string, newPermission: 'viewer' | 'editor') => {
+    try {
+      const listRef = doc(db, 'lists', listId);
+      const updates: any = {
+        updatedAt: serverTimestamp(),
+        [`sharedWith.${targetUserId}`]: newPermission
+      };
+      await updateDoc(listRef, updates);
+      await addListLog(listId, 'Alterou permissão', `Usuário ID: ${targetUserId} para ${newPermission}`);
+    } catch (error) {
+      console.error("Error updating permission:", error);
+      handleFirestoreError(error, OperationType.UPDATE, `lists/${listId}`);
     }
   };
 
@@ -568,7 +668,9 @@ export default function App() {
         items: newItems,
         updatedAt: serverTimestamp()
       });
+      const action = currentView === 'EDIT_ITEM' ? 'Editou item' : 'Adicionou item';
       setCurrentView('LIST_DETAILS');
+      addListLog(selectedListId, action, cleanItemData.name as string || '');
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
@@ -580,11 +682,13 @@ export default function App() {
     if (!selectedListId || !selectedList) return;
     try {
       const listRef = doc(db, 'lists', selectedListId);
+      const itemToDelete = selectedList.items.find(i => i.id === itemId);
       const newItems = selectedList.items.filter(i => i.id !== itemId);
       await updateDoc(listRef, {
         items: newItems,
         updatedAt: serverTimestamp()
       });
+      await addListLog(selectedListId, 'Removeu item', itemToDelete?.name || 'Item');
     } catch (error) {
       console.error("Error deleting item:", error);
     }
@@ -655,6 +759,7 @@ export default function App() {
               key="details" 
               user={user}
               list={selectedList} 
+              logs={logs}
               onBack={() => navigateTo('LIST_OVERVIEW')}
               onAddItem={() => navigateTo('ADD_ITEM')}
               onEditItem={(itemId) => navigateTo('EDIT_ITEM', selectedListId, itemId)}
@@ -662,6 +767,8 @@ export default function App() {
               onProfileClick={() => navigateTo('PROFILE')}
               onArchiveList={() => handleArchiveList(selectedListId!)}
               onShareList={(email, permission) => handleShareList(selectedListId!, email, permission)}
+              onUnshareList={(uid) => handleUnshareList(selectedListId!, uid)}
+              onUpdatePermission={(uid, perm) => handleUpdatePermission(selectedListId!, uid, perm)}
             />
           )}
           {(currentView === 'ADD_ITEM' || currentView === 'EDIT_ITEM') && (
@@ -1126,7 +1233,9 @@ const ListView: React.FC<{
                   ) : (
                     list.sharedWith && Object.keys(list.sharedWith).length > 0 && (
                       <div className="flex flex-wrap items-center gap-1 text-[10px] text-emerald-500 font-bold uppercase mb-1">
-                        <Users size={10} /> Compartilhada com: {list.sharedEmails ? Object.values(list.sharedEmails).join(', ') : `${Object.keys(list.sharedWith).length} pessoas`}
+                        <Users size={10} /> Compartilhada com: {
+                          Object.keys(list.sharedWith).map(uid => list.sharedNames?.[uid] || list.sharedEmails?.[uid] || 'Usuário').join(', ')
+                        }
                       </div>
                     )
                   )}
@@ -1179,19 +1288,23 @@ const ListView: React.FC<{
 const DetailsView: React.FC<{ 
   user: FirebaseUser | null,
   list: ShoppingList, 
+  logs: ListLog[],
   onBack: () => void, 
   onAddItem: () => void,
   onEditItem: (id: string) => void,
   onDeleteItem: (id: string) => void,
   onProfileClick: () => void,
   onArchiveList: () => void,
-  onShareList: (email: string, permission: 'viewer' | 'editor') => Promise<void>
-}> = ({ user, list, onBack, onAddItem, onEditItem, onDeleteItem, onProfileClick, onArchiveList, onShareList }) => {
+  onShareList: (email: string, permission: 'viewer' | 'editor') => Promise<void>,
+  onUnshareList: (uid: string) => Promise<void>,
+  onUpdatePermission: (uid: string, permission: 'viewer' | 'editor') => Promise<void>
+}> = ({ user, list, logs, onBack, onAddItem, onEditItem, onDeleteItem, onProfileClick, onArchiveList, onShareList, onUnshareList, onUpdatePermission }) => {
   const total = list.items.reduce((acc, i) => acc + getItemTotal(i), 0);
   const totalItems = list.items.reduce((acc, i) => acc + (i.unit === 'un' ? i.quantity : 1), 0);
   const avatarName = user?.displayName || user?.email?.split('@')[0] || 'U';
   
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   const [shareEmail, setShareEmail] = useState('');
   const [sharePermission, setSharePermission] = useState<'viewer' | 'editor'>('viewer');
   const [sharing, setSharing] = useState(false);
@@ -1277,6 +1390,24 @@ const DetailsView: React.FC<{
           </div>
         )}
 
+        {/* Shared With Section */}
+        {list.sharedEmails && Object.keys(list.sharedEmails).length > 0 && (
+          <div className="mb-6">
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Compartilhada com</h3>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(list.sharedEmails).map(([uid, email]) => (
+                <div key={uid} className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-100 rounded-full">
+                  <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center text-[10px] text-white font-bold">
+                    {(email as string).substring(0, 1).toUpperCase()}
+                  </div>
+                  <span className="text-xs text-slate-600 font-medium">{email}</span>
+                  <span className="text-[8px] font-black text-blue-400 uppercase">{list.sharedWith?.[uid]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Itens Adicionados</h3>
           <span className="px-2 py-1 bg-blue-50 text-blue-500 text-[10px] font-black rounded-full">{list.items.length} ITENS</span>
@@ -1334,6 +1465,57 @@ const DetailsView: React.FC<{
           >
             <Plus size={20} /> Adicionar Item
           </button>
+        </div>
+
+        {/* Activity Log Section */}
+        <div className="mt-12 mb-8">
+          <button 
+            onClick={() => setShowLogs(!showLogs)}
+            className="flex items-center justify-between w-full py-4 border-t border-slate-100"
+          >
+            <div className="flex items-center gap-2 text-slate-400">
+              <History size={18} />
+              <h3 className="text-[10px] font-bold uppercase tracking-widest">Histórico de Atividades</h3>
+            </div>
+            <Plus size={16} className={`text-slate-400 transition-transform ${showLogs ? 'rotate-45' : ''}`} />
+          </button>
+          
+          <AnimatePresence>
+            {showLogs && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="space-y-4 pt-2">
+                  {logs.length === 0 ? (
+                    <p className="text-center text-slate-400 text-xs py-4 italic">Nenhuma atividade registrada ainda.</p>
+                  ) : (
+                    logs.map(log => (
+                      <div key={log.id} className="flex gap-3 items-start">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                          <User size={14} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-baseline gap-2">
+                            <p className="text-xs font-bold text-slate-700 truncate">{log.userName}</p>
+                            <span className="text-[9px] text-slate-400 whitespace-nowrap">
+                              {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : ''}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            <span className="font-medium text-blue-500">{log.action}</span>
+                            {log.details && <span className="ml-1">: {log.details}</span>}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -1438,6 +1620,51 @@ const DetailsView: React.FC<{
                   </>
                 )}
               </button>
+
+              {/* Existing Shared Users */}
+              {(list.sharedEmails || list.sharedWith || list.sharedNames) && (Object.keys(list.sharedEmails || {}).length > 0 || Object.keys(list.sharedWith || {}).length > 0) && (
+                <div className="space-y-3 pt-4 border-t border-slate-100">
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Compartilhada com</h4>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                    {/* Combine sharedWith, sharedEmails and sharedNames to be robust */}
+                    {Object.keys(list.sharedWith || {}).map((uid) => {
+                      const name = list.sharedNames?.[uid];
+                      const email = list.sharedEmails?.[uid];
+                      const displayName = name || email || 'Usuário compartilhado';
+                      const permission = list.sharedWith?.[uid];
+                      
+                      return (
+                        <div key={uid} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                          <div className="flex items-center gap-2 overflow-hidden flex-1">
+                            <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-[10px] text-white font-bold shrink-0">
+                              {displayName.substring(0, 1).toUpperCase()}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs text-slate-700 font-bold truncate">{displayName}</span>
+                              {name && email && <span className="text-[9px] text-slate-400 truncate">{email}</span>}
+                              <button 
+                                onClick={() => onUpdatePermission(uid, permission === 'editor' ? 'viewer' : 'editor')}
+                                className="text-[9px] text-blue-500 hover:text-blue-700 uppercase font-black tracking-tighter flex items-center gap-1 transition-colors"
+                                title="Clique para alterar permissão"
+                              >
+                                {permission === 'editor' ? 'Editor' : 'Visualizador'}
+                                <Pencil size={8} />
+                              </button>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => onUnshareList(uid)}
+                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all ml-2"
+                            title="Remover acesso"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         </div>
@@ -1642,6 +1869,7 @@ const CreateListView: React.FC<{
         description,
       });
       console.log("CreateListView: onSave completed successfully");
+      setLoading(false);
     } catch (err: any) {
       console.error("CreateListView: Error during onSave:", err);
       let message = 'Ocorreu um erro ao salvar a lista.';

@@ -55,6 +55,20 @@
         "unit": { "type": "string" }
       },
       "required": ["id", "name", "quantity", "unit"]
+    },
+    "ListLog": {
+      "title": "List Log",
+      "description": "A log of activity on a shopping list",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "action", "timestamp"]
     }
   },
   "firestore": {
@@ -65,6 +79,10 @@
     "/lists/{listId}": {
       "schema": "ShoppingList",
       "description": "Shopping lists"
+    },
+    "/lists/{listId}/logs/{logId}": {
+      "schema": "ListLog",
+      "description": "Activity logs for a shopping list"
     }
   }
 }
