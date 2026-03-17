@@ -1139,14 +1139,6 @@ const HomeView: React.FC<{
           </div>
         )}
       </div>
-
-      <div className="mt-8 p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white relative overflow-hidden">
-        <div className="relative z-10">
-          <h3 className="text-lg font-bold mb-1">Dica do dia</h3>
-          <p className="text-white/80 text-sm">Compare preços entre mercados para economizar até 30% no final do mês!</p>
-        </div>
-        <Tag className="absolute -right-4 -bottom-4 text-white/10 rotate-12" size={120} />
-      </div>
     </motion.div>
   );
 }
