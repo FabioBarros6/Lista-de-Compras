@@ -64,9 +64,11 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (request.auth.token.email == "fabiobarros6@gmail.com" ||
-         request.auth.token.email == "fabinhobarros93@gmail.com" ||
-         request.auth.token.email == "fabinhobarros10@gmail.com");
+        ((request.auth.token.email == "fabiobarros6@gmail.com" && request.auth.token.email_verified == true) ||
+         (request.auth.token.email == "fabinhobarros93@gmail.com" && request.auth.token.email_verified == true) ||
+         (request.auth.token.email == "fabinhobarros10@gmail.com" && request.auth.token.email_verified == true) ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isValidEmail(email) {
@@ -119,7 +121,12 @@ service cloud.firestore {
     }
 
     function canUpdateList(data) {
-      return isDocOwner() || isAdmin() || isSharedEditor();
+      return (isDocOwner() || isAdmin() || isSharedEditor()) &&
+             // Ensure shared users cannot change ownerId or sharedWith permissions
+             (isDocOwner() || isAdmin() || (
+               request.resource.data.ownerId == resource.data.ownerId &&
+               (!('sharedWith' in request.resource.data) || request.resource.data.sharedWith == resource.data.sharedWith)
+             ));
     }
 
     // ===============================================================
@@ -142,11 +149,10 @@ service cloud.firestore {
       allow delete: if isDocOwner() || isAdmin();
 
       match /logs/{logId} {
-        allow list: if isAuthenticated() && (
+        allow list, get: if isAuthenticated() && (
           request.auth.uid == get(/databases/$(database)/documents/lists/$(listId)).data.ownerId ||
           (get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith != null && 
-           request.auth.uid in get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith &&
-           get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith[request.auth.uid] in ['viewer', 'editor']) ||
+           request.auth.uid in get(/databases/$(database)/documents/lists/$(listId)).data.sharedWith) ||
           isAdmin()
         );
         allow create: if isAuthenticated() && (

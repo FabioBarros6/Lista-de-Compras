@@ -17,6 +17,7 @@ import {
   ShoppingBasket, 
   Minus, 
   Trash2,
+  X,
   Pencil,
   Share2,
   Archive,
@@ -28,6 +29,7 @@ import {
   Mail,
   Lock,
   Eye,
+  EyeOff,
   Smartphone,
   LogOut,
   LogIn,
@@ -145,8 +147,7 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // For now, we just log and alert or show a message in the UI
-  // In a real app, we'd use a state to show a global error toast
+  throw new Error(JSON.stringify(errInfo));
 };
 
 type Category = 'Alimentos' | 'Higiene' | 'Limpeza' | 'Outros' | '';
@@ -447,6 +448,7 @@ export default function App() {
       setLogs(logsData);
     }, (error) => {
       console.error("Logs onSnapshot error:", error);
+      handleFirestoreError(error, OperationType.LIST, `lists/${selectedListId}/logs`);
     });
 
     return () => unsubscribe();
@@ -554,8 +556,6 @@ export default function App() {
       const emails = emailsInput.split(/[,;]/).map(e => e.trim()).filter(e => e !== '');
       if (emails.length === 0) throw new Error('Por favor, insira ao menos um e-mail.');
 
-      console.log("Sharing list:", listId, "with emails:", emails, "permission:", permission);
-      
       const listRef = doc(db, 'lists', listId);
       const listDoc = await getDoc(listRef);
       if (!listDoc.exists()) throw new Error('Lista não encontrada.');
@@ -564,38 +564,52 @@ export default function App() {
         updatedAt: serverTimestamp()
       };
 
+      const notFoundEmails: string[] = [];
+      const validUsers: { id: string, email: string, name?: string }[] = [];
+
       for (const email of emails) {
-        // 1. Find user by email
+        const lowerEmail = email.toLowerCase();
+        if (lowerEmail === user?.email?.toLowerCase()) continue;
+
         const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('email', '==', email.toLowerCase()));
+        const q = query(usersRef, where('email', '==', lowerEmail));
         const querySnapshot = await getDocs(q);
         
         if (querySnapshot.empty) {
-          console.warn("User not found with email:", email);
-          // We could skip or throw. Let's throw for now to inform the user.
-          throw new Error(`Usuário não encontrado com o e-mail: ${email}`);
+          notFoundEmails.push(email);
+        } else {
+          const targetUser = querySnapshot.docs[0];
+          const targetUserData = targetUser.data();
+          validUsers.push({
+            id: targetUser.id,
+            email: lowerEmail,
+            name: targetUserData.displayName || targetUserData.username
+          });
         }
-        
-        const targetUser = querySnapshot.docs[0];
-        const targetUserId = targetUser.id;
-        const targetUserData = targetUser.data();
-        
-        if (targetUserId === user?.uid) {
-          continue; // Skip self
+      }
+
+      if (notFoundEmails.length > 0) {
+        throw new Error(`Os seguintes e-mails não foram encontrados: ${notFoundEmails.join(', ')}. Certifique-se de que eles possuem uma conta.`);
+      }
+
+      if (validUsers.length === 0) {
+        // This happens if the only email provided was the user's own email
+        if (emails.some(e => e.toLowerCase() === user?.email?.toLowerCase())) {
+          throw new Error('Você não pode compartilhar a lista consigo mesmo.');
         }
-        
-        updates[`sharedWith.${targetUserId}`] = permission;
-        updates[`sharedEmails.${targetUserId}`] = email.toLowerCase();
-        if (targetUserData.displayName) {
-          updates[`sharedNames.${targetUserId}`] = targetUserData.displayName;
-        } else if (targetUserData.username) {
-          updates[`sharedNames.${targetUserId}`] = targetUserData.username;
+        throw new Error('Nenhum usuário válido para compartilhar.');
+      }
+
+      for (const target of validUsers) {
+        updates[`sharedWith.${target.id}`] = permission;
+        updates[`sharedEmails.${target.id}`] = target.email;
+        if (target.name) {
+          updates[`sharedNames.${target.id}`] = target.name;
         }
       }
       
       await updateDoc(listRef, updates);
-      await addListLog(listId, 'Compartilhou a lista', `Com: ${emails.join(', ')}`);
-      console.log("List shared successfully with multiple users");
+      await addListLog(listId, 'Compartilhou a lista', `Com: ${validUsers.map(u => u.email).join(', ')}`);
     } catch (error: any) {
       console.error("Error in handleShareList:", error);
       if (error.code === 'permission-denied') {
@@ -834,6 +848,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 const LoginView: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
@@ -979,13 +994,19 @@ const LoginView: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
             <input 
-              type="password" 
+              type={showPassword ? "text" : "password"} 
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Digite sua senha" 
               className="w-full h-14 pl-12 pr-12 rounded-xl border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
             />
-            <Eye className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 cursor-pointer" size={20} />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors focus:outline-none"
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
           </div>
         </div>
         {!isRegistering && (
@@ -1168,13 +1189,37 @@ const ListView: React.FC<{
 }> = ({ user, lists, onSelectList, onCreateList, onEditList, onDeleteList, onProfileClick }) => {
   const avatarName = user?.displayName || user?.email?.split('@')[0] || 'U';
   const [activeTab, setActiveTab] = useState<'active' | 'archived' | 'shared'>('active');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const filteredLists = lists.filter(list => {
-    if (activeTab === 'active') return list.ownerId === user?.uid && list.status !== 'archived';
-    if (activeTab === 'archived') return list.ownerId === user?.uid && list.status === 'archived';
-    if (activeTab === 'shared') return list.ownerId !== user?.uid;
-    return true;
+    // First filter by tab
+    let matchesTab = false;
+    if (activeTab === 'active') matchesTab = list.ownerId === user?.uid && list.status !== 'archived';
+    else if (activeTab === 'archived') matchesTab = list.ownerId === user?.uid && list.status === 'archived';
+    else if (activeTab === 'shared') matchesTab = list.ownerId !== user?.uid;
+    
+    if (!matchesTab) return false;
+
+    // Then filter by search query
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return list.name.toLowerCase().includes(query) || 
+           list.items.some(item => item.name.toLowerCase().includes(query));
   });
+
+  const suggestions = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const query = searchQuery.toLowerCase();
+    const allNames = lists.map(l => l.name);
+    const itemNames = lists.flatMap(l => l.items.map(i => i.name));
+    const uniqueNames = Array.from(new Set([...allNames, ...itemNames]));
+    
+    return uniqueNames
+      .filter(name => name.toLowerCase().includes(query) && name.toLowerCase() !== query)
+      .slice(0, 5);
+  }, [lists, searchQuery]);
   
   return (
     <motion.div 
@@ -1183,20 +1228,99 @@ const ListView: React.FC<{
       exit={{ opacity: 0, x: -20 }}
       className="flex flex-col h-full pb-24"
     >
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md p-4 flex items-center justify-between border-b border-slate-100">
-        <button 
-          onClick={onProfileClick}
-          className="w-10 h-10 rounded-full bg-blue-500 overflow-hidden flex items-center justify-center text-white font-bold text-sm shadow-sm active:scale-95 transition-transform"
-        >
-          {user?.photoURL ? (
-            <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
-          ) : (
-            avatarName.substring(0, 2).toUpperCase()
-          )}
-        </button>
-        <h1 className="text-lg font-bold flex-1 ml-4">Minhas Listas</h1>
-        <button className="p-2 rounded-full bg-slate-100 text-slate-600"><Search size={24} /></button>
+      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md p-4 flex items-center justify-between border-b border-slate-100">
+        {!isSearching ? (
+          <>
+            <button 
+              onClick={onProfileClick}
+              className="w-10 h-10 rounded-full bg-blue-500 overflow-hidden flex items-center justify-center text-white font-bold text-sm shadow-sm active:scale-95 transition-transform"
+            >
+              {user?.photoURL ? (
+                <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                avatarName.substring(0, 2).toUpperCase()
+              )}
+            </button>
+            <h1 className="text-lg font-bold flex-1 ml-4">Minhas Listas</h1>
+            <button 
+              onClick={() => setIsSearching(true)}
+              className="p-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+            >
+              <Search size={24} />
+            </button>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                autoFocus
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                placeholder="Buscar listas ou itens..."
+                className="w-full h-10 pl-10 pr-10 bg-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X size={16} />
+                </button>
+              )}
+              
+              {/* Autocomplete Suggestions */}
+              <AnimatePresence>
+                {showSuggestions && suggestions.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50"
+                  >
+                    {suggestions.map((suggestion, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setSearchQuery(suggestion);
+                          setShowSuggestions(false);
+                        }}
+                        className="w-full px-4 py-3 text-left text-sm hover:bg-slate-50 flex items-center gap-3 transition-colors border-b border-slate-50 last:border-0"
+                      >
+                        <Search size={14} className="text-slate-400" />
+                        <span className="text-slate-700">{suggestion}</span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <button 
+              onClick={() => {
+                setIsSearching(false);
+                setSearchQuery('');
+                setShowSuggestions(false);
+              }}
+              className="text-sm font-bold text-blue-500 px-2"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
       </header>
+
+      {/* Overlay to close suggestions when clicking outside */}
+      {showSuggestions && suggestions.length > 0 && (
+        <div 
+          className="fixed inset-0 z-10" 
+          onClick={() => setShowSuggestions(false)}
+        />
+      )}
 
       <div className="px-4 pt-4 mb-4">
         <div className="flex border-b border-slate-100 gap-6 overflow-x-auto scrollbar-hide">
@@ -1308,6 +1432,8 @@ const DetailsView: React.FC<{
   const total = list.items.reduce((acc, i) => acc + getItemTotal(i), 0);
   const totalItems = list.items.reduce((acc, i) => acc + (i.unit === 'un' ? i.quantity : 1), 0);
   const avatarName = user?.displayName || user?.email?.split('@')[0] || 'U';
+  
+  const canEdit = list.ownerId === user?.uid || list.sharedWith?.[user?.uid || ''] === 'editor';
   
   const [showShareModal, setShowShareModal] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -1425,20 +1551,22 @@ const DetailsView: React.FC<{
               <div className="flex-1">
                 <div className="flex justify-between items-start">
                   <h4 className="font-bold text-slate-900">{item.name}</h4>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => onEditItem(item.id)}
-                      className="p-1 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button 
-                      onClick={() => onDeleteItem(item.id)}
-                      className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => onEditItem(item.id)}
+                        className="p-1 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button 
+                        onClick={() => onDeleteItem(item.id)}
+                        className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
@@ -1464,14 +1592,16 @@ const DetailsView: React.FC<{
           ))}
         </div>
 
-        <div className="flex justify-center mt-8">
-          <button 
-            onClick={onAddItem}
-            className="flex items-center gap-2 px-6 py-3 border-2 border-blue-500 text-blue-500 font-bold rounded-full hover:bg-blue-50 transition-colors"
-          >
-            <Plus size={20} /> Adicionar Item
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex justify-center mt-8">
+            <button 
+              onClick={onAddItem}
+              className="flex items-center gap-2 px-6 py-3 border-2 border-blue-500 text-blue-500 font-bold rounded-full hover:bg-blue-50 transition-colors"
+            >
+              <Plus size={20} /> Adicionar Item
+            </button>
+          </div>
+        )}
 
         {/* Activity Log Section */}
         <div className="mt-12 mb-8">
@@ -1536,9 +1666,11 @@ const DetailsView: React.FC<{
             <span className="text-2xl font-black text-blue-500">R$ {total.toFixed(2)}</span>
           </div>
         </div>
-        <button className="w-full h-14 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
-          <ShoppingCart size={20} /> Finalizar Lista
-        </button>
+        {canEdit && (
+          <button className="w-full h-14 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
+            <ShoppingCart size={20} /> Finalizar Lista
+          </button>
+        )}
       </footer>
 
       {/* Share Modal */}
